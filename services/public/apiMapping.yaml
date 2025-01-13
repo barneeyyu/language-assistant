@@ -1,0 +1,13 @@
+---
+Conditions:
+  CreateApiMapping: !Not [!Equals ['${self:custom.domainName}', '']]
+Resources:
+  ApiMapping:
+    Type: AWS::ApiGatewayV2::ApiMapping
+    Condition: CreateApiMapping
+    DependsOn: ApiGatewayDeployment${sls:instanceId}
+    Properties:
+      ApiId: !Ref ApiGatewayRestApi
+      ApiMappingKey: public/vcs/app # TODO replace with your app's base path.
+      DomainName: ${self:custom.domainName}
+      Stage: ${sls:stage}

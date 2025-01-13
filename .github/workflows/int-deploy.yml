@@ -1,0 +1,65 @@
+name: int-deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+        stage:
+          description: 'The prefix name of the lambda that you want to deploy to'
+          required: true
+        region:
+          description: 'AWS region of the lambda that you want to deploy to'
+          required: true
+          type: choice
+          options:
+            - us-west-1
+            - us-west-2
+            - us-east-1
+            - us-east-2
+            - ap-southeast-1
+            - ca-central-1
+
+env:
+  REGION: ${{ github.event.inputs.region }}
+  STAGE: ${{ github.event.inputs.stage }}
+
+permissions:
+  contents: read  # Checkout repo
+  id-token: write # Required for OIDC auth with AWS
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Summary
+        env:
+          INPUTS: ${{ toJSON(github.event.inputs) }}
+        run: echo "$INPUTS"
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Checkout Actions
+        uses: actions/checkout@v2
+        with:
+          repository: visionone-container-security/actions
+          path: actions
+      - name: Setup Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: '>=1.18.0-rc.1'
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 14
+      - name: install app dependencies
+        run: |
+          make clean
+          make build
+          npm install
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::033601397865:role/RoleForServerlessDeploy
+          role-session-name: GitHubActionIntDeployServerlessApp
+          role-duration-seconds: 1200
+      - name: Deploy
+        run: npx sls deploy --stage ${{ env.STAGE }} --region ${{ env.REGION }}

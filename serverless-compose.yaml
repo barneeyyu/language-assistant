@@ -1,0 +1,3 @@
+services:
+  template-public:
+    path: services/public

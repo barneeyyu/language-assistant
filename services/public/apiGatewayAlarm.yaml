@@ -1,0 +1,19 @@
+Resources:
+  Api5XXAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: IsProdLike
+    Properties:
+      AlarmName: ${sls:stage}-public-example-app-5XX-Error
+      Dimensions:
+        - Name: ApiName
+          Value: ${sls:stage}-public-example-app
+      MetricName: 5XXError
+      Namespace: AWS/ApiGateway
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      EvaluationPeriods: 1
+      Period: 300 #seconds
+      Statistic: Sum
+      Threshold: 1
+      AlarmActions:
+        - !Sub arn:aws:sns:${AWS::Region}:${AWS::AccountId}:public-example-app # TODO change to correct topic
+      TreatMissingData: missing

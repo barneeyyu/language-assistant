@@ -1,0 +1,112 @@
+# The service name should be a static string and should NOT be prefixed or suffixed with any dynamic variables, such as stage name.
+service: public-example-app # TODO Pick a name.
+
+# You can pin your service to only deploy with a specific Serverless version
+# Check out docs.serverless.com for more details
+frameworkVersion: "3"
+configValidationMode: error
+useDotenv: true
+
+provider:
+  name: aws
+  region: ${env:AWS_REGION, env:AWS_DEFAULT_REGION, 'us-east-1'}
+
+  endpointType: REGIONAL
+  # deploymentBucket:
+  #   name: ${ssm:/serverless-s3-bucket}
+  #   blockPublicAccess: true
+  #   serverSideEncryption: aws:kms
+  #   sseKMSKeyId: ${ssm:/serverless-s3-kms-key, null}
+  iam:
+    role:
+      # Add permissions as needed.
+      # Use Principal of Least Privilege https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html#grant-least-privilege
+      # Keep permissions regional as much as possible https://aws.amazon.com/blogs/security/easier-way-to-control-access-to-aws-regions-using-iam-policies/
+      # Example
+      statements:
+        - Effect: Allow
+          Action:
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+          Resource:
+            - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*
+          Condition:
+            StringEquals:
+              "aws:RequestedRegion": !Ref AWS::Region
+    # deploymentRole: arn:aws:iam::${aws:accountId}:role/RoleForServerlessDeploy
+  tracing:
+    lambda: true
+    apiGateway: true # Enable AWS X-Ray Tracing on your api gateway
+
+  # Enable REST API logs
+  # This can either be set to `restApi: true` to use defaults, or configured via subproperties
+  # Can only be configured if the API is created by Serverless Framework
+  # logs:
+  #   restApi:
+  #     accessLogging: true
+  #     format: '{ "requestId":"$context.requestId", "ip":"$context.identity.sourceIp", "requestTime":"$context.requestTime", "httpMethod":"$context.httpMethod", "resourcePath":"$context.resourcePath", "status":"$context.status", "responseLatency":"$context.responseLatency" }'
+  #     roleManagedExternally: true
+
+  kmsKeyArn: ${ssm:/serverless-lambda-kms-key, null}
+  logRetentionInDays: 90
+
+  # You can define service wide environment variables here
+  environment:
+    ENVVAR1: "env-var-1"
+
+  # You can restrict API to only allow connection with service platform
+  apiGateway:
+    resourcePolicy:
+      - Effect: Allow
+        Principal: "*"
+        Action: execute-api:Invoke
+        Resource:
+          - execute-api:/*/*/*
+
+package:
+  individually: true
+
+functions:
+  # TODO change hello example with your new app
+  hello:
+    runtime: provided.al2023
+    package:
+      artifact: ${env:ARTIFACT_LOC, 'func'}/hello.zip
+    handler: bootstrap
+    events:
+      - http:
+          path: /hello
+          method: get
+    # vpc: # Enable this block if service needs to be deployed into VPC
+    #   securityGroupIds:
+    #   subnetIds:
+
+# TODO define CloudFormation resource if you need
+resources:
+  - Conditions:
+      IsInteg: !Equals ["${sls:stage}", integration]
+      IsStaging: !Equals ["${sls:stage}", staging]
+      IsProd: !Equals ["${sls:stage}", production]
+      IsProdLike:
+        !Or [Condition: IsProd, Condition: IsStaging, Condition: IsInteg]
+      IsNotProdLike: !Not [Condition: IsProdLike]
+
+  # API domain mapping
+  # - ${file(apiMapping.yaml)}
+  - ${file(apiGatewayAlarm.yaml)}
+
+custom:
+  prune:
+    automatic: true
+    number: 10
+  alerts:
+    dashboards: true
+    alarms:
+      - functionErrors
+
+  # domainName: ${ssm:VCSApiDomainName, null}
+
+plugins:
+  - "@serverless/safeguards-plugin"
+  - serverless-prune-plugin
+  - serverless-plugin-aws-alerts
