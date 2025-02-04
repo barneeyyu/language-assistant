@@ -1,8 +1,6 @@
-# Vision One Container Security serverless application template
+# Language Assistant
 
-If you find issues or improvements, please contribute back to the template repo 🙏
-
-_**Rewrite this README for your own application after initial setup**_
+This project is an English language assistant LINE bot designed to help users translate words, provide example sentences, synonyms, and antonyms. Additionally, it offers a daily summary of all the words looked up throughout the day.
 
 ## Setup
 
@@ -50,10 +48,30 @@ Run the following command to build the application:
 Testing setup and execution is left to the developer.
 
 ## Deploy
+### Deploy to AWS on local
+Run the following command to deploy the application:
 
+1. Login aws first, paste your aws credentials
+```bash
+aws configure
+#and paste your keys
+```
 
-### Deploy to Production
+2.
+    2.1Copy the environment template file:
+    ```
+    cp .env.example .env
+    ```
+    2.2 Edit the `.env` file and fill in your LINE Bot credentials:
+    ```bash
+    CHANNEL_SECRET={{your_channel_secret}}
+    CHANNEL_TOKEN={{your_channel_token}}
+    # These credentials can be found in the LINE Developers Console.
+    ```
 
-Deployment to network-one-production is done by GitHub Actions on a push to the main branch
+1. Deploy to AWS
+```bash
+sls deploy --stage {stageName} --verbose
+```
 
-Ensure that the [.github/workflows/release.yaml](.github/workflows/release.yaml) has the TODO addressed to enable deployment to production
+1. When deploy successfully, copy the url of `line-events` API, and paste to the ***Line developers*** -> Webhook URL

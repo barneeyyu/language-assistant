@@ -1,5 +1,5 @@
 # The service name should be a static string and should NOT be prefixed or suffixed with any dynamic variables, such as stage name.
-service: public-example-app # TODO Pick a name.
+service: language-assistant
 
 # You can pin your service to only deploy with a specific Serverless version
 # Check out docs.serverless.com for more details
@@ -10,6 +10,7 @@ useDotenv: true
 provider:
   name: aws
   region: ${env:AWS_REGION, env:AWS_DEFAULT_REGION, 'us-east-1'}
+  stage: ${opt:stage, 'dev'}
 
   endpointType: REGIONAL
   # deploymentBucket:
@@ -67,16 +68,23 @@ package:
   individually: true
 
 functions:
-  # TODO change hello example with your new app
-  hello:
+  language-helper:
     runtime: provided.al2023
     package:
-      artifact: ${env:ARTIFACT_LOC, 'func'}/hello.zip
+      artifact: ${env:ARTIFACT_LOC, 'func'}/language-helper.zip
     handler: bootstrap
+    name: language-helper
+    environment:
+      CHANNEL_SECRET: ${env:CHANNEL_SECRET}
+      CHANNEL_TOKEN: ${env:CHANNEL_TOKEN}
+      OPENAI_BASE_URL: ${env:OPENAI_BASE_URL}
+      OPENAI_API_KEY: ${env:OPENAI_API_KEY}
+      VOCABULARY_TABLE_NAME: ${self:custom.vocabularyTableName}
+    timeout: 30
     events:
       - http:
-          path: /hello
-          method: get
+          path: /webhook/language-receiver
+          method: post
     # vpc: # Enable this block if service needs to be deployed into VPC
     #   securityGroupIds:
     #   subnetIds:
@@ -96,6 +104,7 @@ resources:
   - ${file(apiGatewayAlarm.yaml)}
 
 custom:
+  vocabularyTableName: language-assistant-${self:provider.stage}-vocabulary
   prune:
     automatic: true
     number: 10
