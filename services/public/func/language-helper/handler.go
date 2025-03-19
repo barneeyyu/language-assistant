@@ -4,14 +4,20 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"language-assistant/utils"
 	"net/http"
+	"time"
 
 	"github.com/aws/aws-lambda-go/events"
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	"github.com/aws/aws-sdk-go-v2/service/scheduler"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/line/line-bot-sdk-go/v7/linebot"
 	"github.com/sirupsen/logrus"
+
+	"language-assistant/models"
 )
 
 type DynamoDbAPI interface {
@@ -22,22 +28,20 @@ type DynamoDbAPI interface {
 }
 
 type Handler struct {
-	logger          *logrus.Entry
-	envVars         *EnvVars
-	linebotClient   utils.LinebotAPI
-	openaiClient    utils.OpenaiAPI
-	schedulerClient *scheduler.Client
-	dynamodbClient  DynamoDbAPI
+	logger         *logrus.Entry
+	envVars        *EnvVars
+	linebotClient  utils.LinebotAPI
+	openaiClient   utils.OpenaiAPI
+	dynamodbClient DynamoDbAPI
 }
 
-func NewHandler(logger *logrus.Entry, envVars *EnvVars, linebotClient utils.LinebotAPI, openaiClient utils.OpenaiAPI, schedulerClient *scheduler.Client, dynamodbClient DynamoDbAPI) (*Handler, error) {
+func NewHandler(logger *logrus.Entry, envVars *EnvVars, linebotClient utils.LinebotAPI, openaiClient utils.OpenaiAPI, dynamodbClient DynamoDbAPI) (*Handler, error) {
 	return &Handler{
-		logger:          logger,
-		envVars:         envVars,
-		linebotClient:   linebotClient,
-		openaiClient:    openaiClient,
-		schedulerClient: schedulerClient,
-		dynamodbClient:  dynamodbClient,
+		logger:         logger,
+		envVars:        envVars,
+		linebotClient:  linebotClient,
+		openaiClient:   openaiClient,
+		dynamodbClient: dynamodbClient,
 	}, nil
 }
 
@@ -74,8 +78,15 @@ func (h *Handler) EventHandler(request events.APIGatewayProxyRequest) (events.AP
 					}, nil
 				}
 				h.logger.Info("Translation response: ", translationResponse)
+
+				for _, translation := range translationResponse.Translations {
+					if err := h.saveWord(translation.Word, translation.PartOfSpeech, translation.Meaning, translation.Example.En, event.Source.UserID); err != nil {
+						h.logger.Error("Failed to save word: ", err)
+						continue
+					}
+				}
 				// Reply with the same message
-				if err := h.linebotClient.ReplyMessage(event.ReplyToken, translationResponse); err != nil {
+				if err := h.linebotClient.ReplyMessage(event.ReplyToken, translationResponse.String()); err != nil {
 					h.logger.Error("Failed to reply message: ", err)
 					continue
 				}
@@ -87,6 +98,84 @@ func (h *Handler) EventHandler(request events.APIGatewayProxyRequest) (events.AP
 		StatusCode: 200,
 		Body:       "OK",
 	}, nil
+}
+
+func (h *Handler) saveWord(word, partOfSpeech, translation, sentence, userID string) error {
+	now := time.Now().UTC()
+	today := now.Format("2006-01-02")
+	timestamp := now.Format(time.RFC3339)
+
+	// get user vocabulary of today
+	result, err := h.dynamodbClient.GetItem(context.Background(), &dynamodb.GetItemInput{
+		TableName: aws.String(h.envVars.vocabularyTableName),
+		Key: map[string]types.AttributeValue{
+			"date":   &types.AttributeValueMemberS{Value: today},
+			"userId": &types.AttributeValueMemberS{Value: userID},
+		},
+	})
+
+	// make sure that search DB without error
+	if err != nil {
+		return fmt.Errorf("failed to get user vocabulary from DynamoDB: %w", err)
+	}
+
+	var userVoca models.UserVocabulary
+	// if record not found, create new record
+	if result.Item == nil {
+		// create new user vocabulary
+		userVoca = models.UserVocabulary{
+			Date:      today,
+			UserID:    userID,
+			Words:     []models.WordRecord{},
+			UpdatedAt: timestamp,
+		}
+	} else {
+		// if record exists, update the record
+		userVoca.Date = today
+		userVoca.UserID = userID
+		userVoca.UpdatedAt = timestamp
+
+		// parse words from dynamodb
+		if wordsAttr, ok := result.Item["words"].(*types.AttributeValueMemberS); ok && wordsAttr != nil {
+			if err := json.Unmarshal([]byte(wordsAttr.Value), &userVoca.Words); err != nil {
+				return fmt.Errorf("failed to unmarshal words: %w", err)
+			}
+		} else {
+			userVoca.Words = []models.WordRecord{}
+		}
+	}
+
+	// add new word to user vocabulary no matter it's already in the list or not
+	userVoca.Words = append(userVoca.Words, models.WordRecord{
+		Word:         word,
+		PartOfSpeech: partOfSpeech,
+		Translation:  translation,
+		Sentence:     sentence,
+		Timestamp:    timestamp,
+	})
+	userVoca.UpdatedAt = timestamp
+
+	// save user vocabulary to dynamodb
+	wordsJSON, err := json.Marshal(userVoca.Words)
+	if err != nil {
+		return errors.New("failed to marshal words")
+	}
+
+	_, err = h.dynamodbClient.PutItem(context.Background(), &dynamodb.PutItemInput{
+		TableName: aws.String(h.envVars.vocabularyTableName),
+		Item: map[string]types.AttributeValue{
+			"date":      &types.AttributeValueMemberS{Value: userVoca.Date},
+			"userId":    &types.AttributeValueMemberS{Value: userVoca.UserID},
+			"words":     &types.AttributeValueMemberS{Value: string(wordsJSON)},
+			"updatedAt": &types.AttributeValueMemberS{Value: userVoca.UpdatedAt},
+		},
+	})
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to save user vocabulary to DynamoDB")
+		return fmt.Errorf("failed to save user vocabulary: %w", err)
+	}
+
+	return err
 }
 
 func (h *Handler) RequestParser(request events.APIGatewayProxyRequest) ([]*linebot.Event, error) {

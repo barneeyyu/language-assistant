@@ -9,7 +9,6 @@ import (
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	"github.com/aws/aws-sdk-go-v2/service/scheduler"
 	"github.com/sirupsen/logrus"
 )
 
@@ -26,9 +25,7 @@ type EnvVars struct {
 	channelToken        string
 	openaiBaseUrl       string
 	openaiApiKey        string
-	ReminderFunctionArn string
-	SchedulerRoleArn    string
-	EventTableName      string
+	vocabularyTableName string
 }
 
 func getEnvironmentVariables() (envVars *EnvVars, err error) {
@@ -52,16 +49,17 @@ func getEnvironmentVariables() (envVars *EnvVars, err error) {
 		return nil, errors.New("OPENAI_API_KEY is not set")
 	}
 
-	eventTableName := os.Getenv("VOCABULARY_TABLE_NAME")
-	if eventTableName == "" {
+	vocabularyTableName := os.Getenv("VOCABULARY_TABLE_NAME")
+	if vocabularyTableName == "" {
 		return nil, errors.New("VOCABULARY_TABLE_NAME is not set")
 	}
 
 	return &EnvVars{
-		channelSecret: channelSecret,
-		channelToken:  channelToken,
-		openaiBaseUrl: openaiBaseUrl,
-		openaiApiKey:  openaiApiKey,
+		channelSecret:       channelSecret,
+		channelToken:        channelToken,
+		openaiBaseUrl:       openaiBaseUrl,
+		openaiApiKey:        openaiApiKey,
+		vocabularyTableName: vocabularyTableName,
 	}, nil
 }
 
@@ -97,10 +95,9 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	schedulerClient := scheduler.NewFromConfig(cfg)
 	dynamodbClient := dynamodb.NewFromConfig(cfg)
 
-	handler, err := NewHandler(logger, envVars, linebotClient, openaiClient, schedulerClient, dynamodbClient)
+	handler, err := NewHandler(logger, envVars, linebotClient, openaiClient, dynamodbClient)
 	if err != nil {
 		logger.WithError(err).Error("Failed to create handler")
 		panic(err)

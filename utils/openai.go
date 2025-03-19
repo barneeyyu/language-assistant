@@ -28,6 +28,7 @@ type Translation struct {
 	Meaning      string   `json:"meaning"`
 	Example      Example  `json:"example"`
 	Synonyms     []string `json:"synonyms"`
+	Antonyms     []string `json:"antonyms"`
 }
 
 type Example struct {
@@ -36,7 +37,7 @@ type Example struct {
 }
 
 type OpenaiAPI interface {
-	Translate(inputMsg string) (string, error)
+	Translate(inputMsg string) (TranslationResponse, error)
 }
 
 type OpenaiClient struct {
@@ -52,11 +53,11 @@ func NewOpenAIClient(apiKey string, baseUrl string) (OpenaiAPI, error) {
 	}, nil
 }
 
-func (c *OpenaiClient) Translate(inputMsg string) (string, error) {
+func (c *OpenaiClient) Translate(inputMsg string) (TranslationResponse, error) {
 	var prompt ParserPrompt
 	err := yaml.Unmarshal(translationParserYAML, &prompt)
 	if err != nil {
-		return "", fmt.Errorf("error parsing prompt yaml: %w", err)
+		return TranslationResponse{}, fmt.Errorf("error parsing prompt yaml: %w", err)
 	}
 
 	resp, err := c.client.CreateChatCompletion(
@@ -77,20 +78,28 @@ func (c *OpenaiClient) Translate(inputMsg string) (string, error) {
 		},
 	)
 	if err != nil {
-		return "", fmt.Errorf("OpenAI API error: %w", err)
+		return TranslationResponse{}, fmt.Errorf("OpenAI API error: %w", err)
 	}
 
 	content := resp.Choices[0].Message.Content
-	fmt.Printf("Raw OpenAI response:\n%s\n", content)
 
-	fmt.Println("resp from openai: ", resp.Choices[0].Message.Content)
+	if !strings.Contains(content, "{") {
+		return TranslationResponse{
+			Translations: []Translation{
+				{
+					Word:    inputMsg,
+					Meaning: strings.Trim(strings.TrimSpace(content), "\""),
+				},
+			},
+		}, nil
+	}
 	var translationResponse TranslationResponse
 	err = json.Unmarshal([]byte(resp.Choices[0].Message.Content), &translationResponse)
 	if err != nil {
-		return "", fmt.Errorf("error unmarshalling openai API response: %w", err)
+		return TranslationResponse{}, fmt.Errorf("error unmarshalling openai API response: %w", err)
 	}
 
-	return translationResponse.String(), nil
+	return translationResponse, nil
 }
 
 func (t Translation) String() string {
@@ -110,6 +119,10 @@ func (t Translation) String() string {
 	// 同義詞
 	if len(t.Synonyms) > 0 {
 		sb.WriteString(fmt.Sprintf("同義詞：%s\n", strings.Join(t.Synonyms, ", ")))
+	}
+
+	if len(t.Antonyms) > 0 {
+		sb.WriteString(fmt.Sprintf("反義詞：%s\n", strings.Join(t.Antonyms, ", ")))
 	}
 
 	return sb.String()

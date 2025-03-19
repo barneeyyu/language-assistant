@@ -34,6 +34,15 @@ provider:
           Condition:
             StringEquals:
               "aws:RequestedRegion": !Ref AWS::Region
+        - Effect: Allow
+          Action:
+            - dynamodb:PutItem
+            - dynamodb:GetItem
+            - dynamodb:Query
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+          Resource: 
+            - "Fn::GetAtt": [ VocabularyTable, Arn ]
     # deploymentRole: arn:aws:iam::${aws:accountId}:role/RoleForServerlessDeploy
   tracing:
     lambda: true
@@ -88,20 +97,42 @@ functions:
     # vpc: # Enable this block if service needs to be deployed into VPC
     #   securityGroupIds:
     #   subnetIds:
+  language-reminder:
+    runtime: provided.al2023
+    package:
+      artifact: ${env:ARTIFACT_LOC, 'func'}/language-reminder.zip
+    handler: bootstrap
+    name: language-reminder
+    environment:
+      CHANNEL_SECRET: ${env:CHANNEL_SECRET}
+      CHANNEL_TOKEN: ${env:CHANNEL_TOKEN}
+      VOCABULARY_TABLE_NAME: ${self:custom.vocabularyTableName}
+    timeout: 30
+    events:
+      - http:
+          path: /api/language-reminder
+          method: post
 
-# TODO define CloudFormation resource if you need
 resources:
-  - Conditions:
-      IsInteg: !Equals ["${sls:stage}", integration]
-      IsStaging: !Equals ["${sls:stage}", staging]
-      IsProd: !Equals ["${sls:stage}", production]
-      IsProdLike:
-        !Or [Condition: IsProd, Condition: IsStaging, Condition: IsInteg]
-      IsNotProdLike: !Not [Condition: IsProdLike]
-
+  Resources:
+    VocabularyTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.vocabularyTableName}
+        AttributeDefinitions:
+          - AttributeName: date
+            AttributeType: S
+          - AttributeName: userId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: date
+            KeyType: HASH
+          - AttributeName: userId
+            KeyType: RANGE
+        BillingMode: PAY_PER_REQUEST
   # API domain mapping
   # - ${file(apiMapping.yaml)}
-  - ${file(apiGatewayAlarm.yaml)}
+  # - ${file(apiGatewayAlarm.yaml)}
 
 custom:
   vocabularyTableName: language-assistant-${self:provider.stage}-vocabulary
@@ -119,3 +150,4 @@ plugins:
   - "@serverless/safeguards-plugin"
   - serverless-prune-plugin
   - serverless-plugin-aws-alerts
+
