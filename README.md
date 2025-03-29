@@ -1,77 +1,89 @@
 # Language Assistant
 
-This project is an English language assistant LINE bot designed to help users translate words, provide example sentences, synonyms, and antonyms. Additionally, it offers a daily summary of all the words looked up throughout the day.
+<img src="https://img.shields.io/badge/Go-00ADD8?style=for-the-badge&logo=go&logoColor=white" />
+<img src="https://img.shields.io/badge/Amazon_AWS-FF9900?style=for-the-badge&logo=amazonaws&logoColor=white" />
+<img src="https://img.shields.io/badge/Amazon%20DynamoDB-4053D6?style=for-the-badge&logo=Amazon%20DynamoDB&logoColor=white" />
+<img src="https://img.shields.io/badge/Line-00C300?style=for-the-badge&logo=line&logoColor=white" />
+<img src="https://img.shields.io/badge/ChatGPT-74aa9c?style=for-the-badge&logo=openai&logoColor=white" />
 
-## Setup
+![Serverless](https://img.shields.io/badge/Serverless-FD5750?style=flat-square&logo=serverless&logoColor=white)
 
-1. Address all `TODO` comments.
+![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/barneeyyu/language-assistant?style=for-the-badge)
+![GitHub last commit](https://img.shields.io/github/last-commit/barneeyyu/language-assistant?style=for-the-badge)
+![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge&logo=license)
 
-2. Install [Node.js](https://nodejs.org/) and [Go](https://go.dev/).
 
-3. Install and upgrade all packages to ensure your application is initialized with the latest package versions.  Note, this only need be done once.
+A LINE bot that serves as your English language companion, offering:
+- Word translation
+- Example sentences
+- Synonyms and antonyms
+- Daily summary of looked-up words
 
-       go get -t -u ./...
-       go mod tidy
+## Prerequisites
+- [Node.js](https://nodejs.org/)
+- [Go](https://go.dev/)
+- AWS Account and AWS CLI
+- LINE Developer Account
 
-       npm update
-       npx ncu -u
+## Quick Start
 
-4. Commit changes
-
-       git add .
-       git commit
-
-That's it, you are good to start coding!
-
-For more on building AWS Lambdas with Go, see [AWS docs](https://docs.aws.amazon.com/lambda/latest/dg/lambda-golang.html)
-
-## Golang Linter Configuration
-
-Change the .golangci.yml file to match your project's needs.
-
-Execute the linter with:
-
-    make lint
-
-If you want to run the linter with auto-fixing, run:
-
-    make lint-fix
-
-## Build
-
-Run the following command to build the application:
-
-    make clean build
-
-## Test
-
-Testing setup and execution is left to the developer.
-
-## Deploy
-### Deploy to AWS on local
-Run the following command to deploy the application:
-
-1. Login aws first, paste your aws credentials
+1. Clone the repository
 ```bash
+git clone [repository-url]
+cd language-assistant
+```
+
+2. Install dependencies
+```bash
+# Update Go dependencies
+go get -t -u ./...
+go mod tidy
+
+# Update Node.js dependencies
+npm update
+npx ncu -u
+```
+
+3. Configure LINE Bot
+- Copy the environment template:
+```bash
+cp .env.example .env
+```
+- Edit `.env` with your LINE Bot credentials from LINE Developers Console:
+```bash
+CHANNEL_SECRET=your_channel_secret
+CHANNEL_TOKEN=your_channel_token
+```
+
+4. Deploy to AWS
+```bash
+# Configure AWS credentials
 aws configure
-#and paste your keys
+
+# Deploy using Serverless Framework
+sls deploy --stage prod --verbose
 ```
 
-2.
-    2.1Copy the environment template file:
-    ```
-    cp .env.example .env
-    ```
-    2.2 Edit the `.env` file and fill in your LINE Bot credentials:
-    ```bash
-    CHANNEL_SECRET={{your_channel_secret}}
-    CHANNEL_TOKEN={{your_channel_token}}
-    # These credentials can be found in the LINE Developers Console.
-    ```
+5. Set Webhook URL
+- Copy the generated `line-events` API URL
+- Set it as Webhook URL in LINE Developers Console
 
-1. Deploy to AWS
+## Development
+
+### Linting
 ```bash
-sls deploy --stage {stageName} --verbose
+# Run linter
+make lint
+
+# Run linter with auto-fix
+make lint-fix
 ```
 
-1. When deploy successfully, copy the url of `line-events` API, and paste to the ***Line developers*** -> Webhook URL
+### Building
+```bash
+make clean build
+```
+
+## Documentation
+- [AWS Lambda Golang Guide](https://docs.aws.amazon.com/lambda/latest/dg/lambda-golang.html)
+- [LINE Messaging API](https://developers.line.biz/en/docs/messaging-api/)
