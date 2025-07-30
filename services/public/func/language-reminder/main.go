@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"language-assistant/internal/repository"
 	"os"
 
 	"github.com/aws/aws-lambda-go/lambda"
@@ -23,7 +24,6 @@ const (
 type EnvVars struct {
 	botClient           *linebot.Client
 	vocabularyTableName string
-	dynamodbClient      DynamoDbAPI
 }
 
 func getEnvironmentVariables() (envVars *EnvVars, err error) {
@@ -51,16 +51,9 @@ func getEnvironmentVariables() (envVars *EnvVars, err error) {
 		return nil, errors.New("VOCABULARY_TABLE_NAME is not set")
 	}
 
-	cfg, err := config.LoadDefaultConfig(context.TODO())
-	if err != nil {
-		panic(err)
-	}
-	dynamodbClient := dynamodb.NewFromConfig(cfg)
-
 	return &EnvVars{
 		botClient:           bot,
 		vocabularyTableName: vocabularyTableName,
-		dynamodbClient:      dynamodbClient,
 	}, nil
 }
 
@@ -80,7 +73,15 @@ func main() {
 		panic(err)
 	}
 
-	handler, err := NewHandler(logger, envVars)
+	cfg, err := config.LoadDefaultConfig(context.TODO())
+	if err != nil {
+		panic(err)
+	}
+	dynamodbClient := dynamodb.NewFromConfig(cfg)
+
+	reminderRepo := repository.NewReminderRepository(logger, dynamodbClient, envVars.vocabularyTableName)
+
+	handler, err := NewHandler(logger, envVars, reminderRepo)
 	if err != nil {
 		logger.WithError(err).Error("Failed to create handler")
 		panic(err)

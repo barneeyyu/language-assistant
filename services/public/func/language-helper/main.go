@@ -3,7 +3,8 @@ package main
 import (
 	"context"
 	"errors"
-	"language-assistant/utils"
+	"language-assistant/internal/repository"
+	"language-assistant/internal/utils"
 	"os"
 
 	"github.com/aws/aws-lambda-go/lambda"
@@ -97,7 +98,9 @@ func main() {
 	}
 	dynamodbClient := dynamodb.NewFromConfig(cfg)
 
-	handler, err := NewHandler(logger, envVars, linebotClient, openaiClient, dynamodbClient)
+	vocabularyRepo := repository.NewVocabularyRepository(logger, dynamodbClient, envVars.vocabularyTableName)
+
+	handler, err := NewHandler(logger, envVars, linebotClient, openaiClient, vocabularyRepo)
 	if err != nil {
 		logger.WithError(err).Error("Failed to create handler")
 		panic(err)
