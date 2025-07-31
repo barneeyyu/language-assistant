@@ -38,3 +38,10 @@ func FormatWordRecords(records interface{}) string {
 	}
 	return sb.String()
 }
+
+type UserConfig struct {
+	UserID    string `json:"userId"`
+	Course    string `json:"course"`    // "toeic" or "ielts"
+	Level     int    `json:"level"`     // 分數
+	UpdatedAt string `json:"updatedAt"` // ISO timestamp
+}

@@ -18,7 +18,7 @@ const (
 	MESSAGE     = "message"
 	TIMESTAMP   = "timestamp"
 	COMPONENT   = "component"
-	SERVICENAME = "language-helper"
+	SERVICENAME = "language-handler"
 )
 
 type EnvVars struct {
@@ -27,6 +27,7 @@ type EnvVars struct {
 	openaiBaseUrl       string
 	openaiApiKey        string
 	vocabularyTableName string
+	userTableName       string
 }
 
 func getEnvironmentVariables() (envVars *EnvVars, err error) {
@@ -55,12 +56,18 @@ func getEnvironmentVariables() (envVars *EnvVars, err error) {
 		return nil, errors.New("VOCABULARY_TABLE_NAME is not set")
 	}
 
+	userTableName := os.Getenv("USER_TABLE_NAME")
+	if userTableName == "" {
+		return nil, errors.New("USER_TABLE_NAME is not set")
+	}
+
 	return &EnvVars{
 		channelSecret:       channelSecret,
 		channelToken:        channelToken,
 		openaiBaseUrl:       openaiBaseUrl,
 		openaiApiKey:        openaiApiKey,
 		vocabularyTableName: vocabularyTableName,
+		userTableName:       userTableName,
 	}, nil
 }
 
@@ -99,8 +106,9 @@ func main() {
 	dynamodbClient := dynamodb.NewFromConfig(cfg)
 
 	vocabularyRepo := repository.NewVocabularyRepository(logger, dynamodbClient, envVars.vocabularyTableName)
+	userConfigRepo := repository.NewUserConfigRepository(logger, dynamodbClient, envVars.userTableName)
 
-	handler, err := NewHandler(logger, envVars, linebotClient, openaiClient, vocabularyRepo)
+	handler, err := NewHandler(logger, envVars, linebotClient, openaiClient, vocabularyRepo, userConfigRepo)
 	if err != nil {
 		logger.WithError(err).Error("Failed to create handler")
 		panic(err)

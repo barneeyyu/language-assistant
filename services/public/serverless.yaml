@@ -43,6 +43,7 @@ provider:
             - dynamodb:DeleteItem
           Resource: 
             - "Fn::GetAtt": [ VocabularyTable, Arn ]
+            - "Fn::GetAtt": [ UserTable, Arn ]
     # deploymentRole: arn:aws:iam::${aws:accountId}:role/RoleForServerlessDeploy
   tracing:
     lambda: true
@@ -77,18 +78,19 @@ package:
   individually: true
 
 functions:
-  language-helper:
+  language-handler:
     runtime: provided.al2023
     package:
-      artifact: ${env:ARTIFACT_LOC, 'func'}/language-helper.zip
+      artifact: ${env:ARTIFACT_LOC, 'func'}/language-handler.zip
     handler: bootstrap
-    name: language-helper
+    name: language-handler
     environment:
       CHANNEL_SECRET: ${env:CHANNEL_SECRET}
       CHANNEL_TOKEN: ${env:CHANNEL_TOKEN}
       OPENAI_BASE_URL: ${env:OPENAI_BASE_URL}
       OPENAI_API_KEY: ${env:OPENAI_API_KEY}
       VOCABULARY_TABLE_NAME: ${self:custom.vocabularyTableName}
+      USER_TABLE_NAME: ${self:custom.userTableName}
     timeout: 30
     events:
       - http:
@@ -130,12 +132,37 @@ resources:
           - AttributeName: userId
             KeyType: RANGE
         BillingMode: PAY_PER_REQUEST
+    UserTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.userTableName}
+        AttributeDefinitions:
+          - AttributeName: userId
+            AttributeType: S
+          - AttributeName: course
+            AttributeType: S
+          - AttributeName: level
+            AttributeType: S
+        KeySchema:
+          - AttributeName: userId
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: CourseLevelIndex
+            KeySchema:
+              - AttributeName: course
+                KeyType: HASH
+              - AttributeName: level
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+        BillingMode: PAY_PER_REQUEST
   # API domain mapping
   # - ${file(apiMapping.yaml)}
   # - ${file(apiGatewayAlarm.yaml)}
 
 custom:
   vocabularyTableName: language-assistant-${self:provider.stage}-vocabulary
+  userTableName: language-assistant-${self:provider.stage}-user
   prune:
     automatic: true
     number: 10

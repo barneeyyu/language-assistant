@@ -24,3 +24,9 @@ type VocabularyRepository interface {
 type ReminderRepository interface {
 	GetUserVocabulariesByDate(date string) ([]models.UserVocabulary, error)
 }
+
+// UserConfigRepository defines user configuration database operations
+type UserConfigRepository interface {
+	SaveUserConfig(userID, course string, level int) error
+	GetUserConfig(userID string) (*models.UserConfig, error)
+}

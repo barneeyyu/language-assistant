@@ -9,6 +9,7 @@ import (
 
 type LinebotAPI interface {
 	ReplyMessage(replyToken string, message string) error
+	ReplyMessageWithMultiple(replyToken string, messages ...linebot.SendingMessage) error
 	ParseRequest(req *http.Request) ([]*linebot.Event, error)
 }
 
@@ -28,6 +29,11 @@ func NewLineBotClient(channelSecret string, channelToken string) (LinebotAPI, er
 
 func (c *LineBotClient) ReplyMessage(replyToken string, message string) error {
 	_, err := c.client.ReplyMessage(replyToken, linebot.NewTextMessage(message)).Do()
+	return err
+}
+
+func (c *LineBotClient) ReplyMessageWithMultiple(replyToken string, messages ...linebot.SendingMessage) error {
+	_, err := c.client.ReplyMessage(replyToken, messages...).Do()
 	return err
 }
 
