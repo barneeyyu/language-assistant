@@ -28,16 +28,19 @@ func NewUserConfigRepository(logger *logrus.Entry, dynamodb utils.DynamoDbAPI, t
 	}
 }
 
-func (r *userConfigRepository) SaveUserConfig(userID, course string, level int) error {
+func (r *userConfigRepository) SaveUserConfig(userID, course string, level int, dailyWords int, pushTime, timezone string) error {
 	timestamp := time.Now().UTC().Format(time.RFC3339)
 
 	_, err := r.dynamodb.PutItem(context.Background(), &dynamodb.PutItemInput{
 		TableName: aws.String(r.tableName),
 		Item: map[string]types.AttributeValue{
-			"userId":    &types.AttributeValueMemberS{Value: userID},
-			"course":    &types.AttributeValueMemberS{Value: course},
-			"level":     &types.AttributeValueMemberS{Value: fmt.Sprintf("%d", level)},
-			"updatedAt": &types.AttributeValueMemberS{Value: timestamp},
+			"userId":     &types.AttributeValueMemberS{Value: userID},
+			"course":     &types.AttributeValueMemberS{Value: course},
+			"level":      &types.AttributeValueMemberS{Value: fmt.Sprintf("%d", level)},
+			"dailyWords": &types.AttributeValueMemberS{Value: fmt.Sprintf("%d", dailyWords)},
+			"pushTime":   &types.AttributeValueMemberS{Value: pushTime},
+			"timezone":   &types.AttributeValueMemberS{Value: timezone},
+			"updatedAt":  &types.AttributeValueMemberS{Value: timestamp},
 		},
 	})
 
@@ -47,9 +50,12 @@ func (r *userConfigRepository) SaveUserConfig(userID, course string, level int) 
 	}
 
 	r.logger.WithFields(logrus.Fields{
-		"userId": userID,
-		"course": course,
-		"level":  level,
+		"userId":     userID,
+		"course":     course,
+		"level":      level,
+		"dailyWords": dailyWords,
+		"pushTime":   pushTime,
+		"timezone":   timezone,
 	}).Info("Successfully saved user config")
 
 	return nil
@@ -89,15 +95,42 @@ func (r *userConfigRepository) GetUserConfig(userID string) (*models.UserConfig,
 		}
 	}
 
+	// Extract dailyWords
+	if attr, ok := result.Item["dailyWords"].(*types.AttributeValueMemberS); ok {
+		dailyWords, err := strconv.Atoi(attr.Value)
+		if err == nil {
+			userConfig.DailyWords = dailyWords
+		}
+	} else {
+		userConfig.DailyWords = 10 // 預設值
+	}
+
+	// Extract pushTime
+	if attr, ok := result.Item["pushTime"].(*types.AttributeValueMemberS); ok {
+		userConfig.PushTime = attr.Value
+	} else {
+		userConfig.PushTime = "08:00" // 預設值
+	}
+
+	// Extract timezone
+	if attr, ok := result.Item["timezone"].(*types.AttributeValueMemberS); ok {
+		userConfig.Timezone = attr.Value
+	} else {
+		userConfig.Timezone = "Asia/Taipei" // 預設值
+	}
+
 	// Extract updatedAt
 	if attr, ok := result.Item["updatedAt"].(*types.AttributeValueMemberS); ok {
 		userConfig.UpdatedAt = attr.Value
 	}
 
 	r.logger.WithFields(logrus.Fields{
-		"userId": userID,
-		"course": userConfig.Course,
-		"level":  userConfig.Level,
+		"userId":     userID,
+		"course":     userConfig.Course,
+		"level":      userConfig.Level,
+		"dailyWords": userConfig.DailyWords,
+		"pushTime":   userConfig.PushTime,
+		"timezone":   userConfig.Timezone,
 	}).Info("Successfully retrieved user config")
 
 	return &userConfig, nil

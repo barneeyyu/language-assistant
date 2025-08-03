@@ -29,7 +29,7 @@ type ReminderRepository interface {
 
 // UserConfigRepository defines user configuration database operations
 type UserConfigRepository interface {
-	SaveUserConfig(userID, course string, level int) error
+	SaveUserConfig(userID, course string, level int, dailyWords int, pushTime, timezone string) error
 	GetUserConfig(userID string) (*models.UserConfig, error)
 	GetUsersByCourse(course string) ([]models.UserConfig, error)
 }
