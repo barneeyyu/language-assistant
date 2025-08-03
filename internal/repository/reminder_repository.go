@@ -28,11 +28,13 @@ func NewReminderRepository(logger *logrus.Entry, dynamodb utils.DynamoDbAPI, tab
 }
 
 func (r *reminderRepository) GetUserVocabulariesByDate(date string) ([]models.UserVocabulary, error) {
+	// 使用 GSI 查詢特定日期的所有用戶記錄
 	result, err := r.dynamodb.Query(context.Background(), &dynamodb.QueryInput{
 		TableName:              aws.String(r.tableName),
-		KeyConditionExpression: aws.String("#date = :dateVal"), // Use #date as an alias to avoid using the reserved keyword "date"
+		IndexName:              aws.String("DateIndex"), // GSI 名稱
+		KeyConditionExpression: aws.String("#date = :dateVal"),
 		ExpressionAttributeNames: map[string]string{
-			"#date": "date", // Define #date to reference the "date" column in DynamoDB
+			"#date": "date",
 		},
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":dateVal": &types.AttributeValueMemberS{Value: date},
@@ -59,8 +61,10 @@ func (r *reminderRepository) GetUserVocabulariesByDate(date string) ([]models.Us
 			userVoca.UserID = attr.Value
 		}
 
-		// Extract `date`
+		// Extract `date` (from SK or date field)
 		if attr, ok := item["date"].(*types.AttributeValueMemberS); ok {
+			userVoca.Date = attr.Value
+		} else if attr, ok := item["sk"].(*types.AttributeValueMemberS); ok {
 			userVoca.Date = attr.Value
 		}
 

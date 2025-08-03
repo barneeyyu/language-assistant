@@ -18,6 +18,8 @@ type DynamoDbAPI interface {
 // VocabularyRepository defines vocabulary-related database operations
 type VocabularyRepository interface {
 	SaveWord(word, partOfSpeech, translation, sentence, userID string) error
+	GetUserVocabularyByDate(userID, date string) (*models.UserVocabulary, error)
+	GetAllUserVocabularies(userID string) ([]models.UserVocabulary, error)
 }
 
 // ReminderRepository defines reminder-related database operations
@@ -29,4 +31,5 @@ type ReminderRepository interface {
 type UserConfigRepository interface {
 	SaveUserConfig(userID, course string, level int) error
 	GetUserConfig(userID string) (*models.UserConfig, error)
+	GetUsersByCourse(course string) ([]models.UserConfig, error)
 }

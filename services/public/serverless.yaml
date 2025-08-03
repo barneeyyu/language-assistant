@@ -43,7 +43,9 @@ provider:
             - dynamodb:DeleteItem
           Resource: 
             - "Fn::GetAtt": [ VocabularyTable, Arn ]
+            - "Fn::Join": [ "/", [ "Fn::GetAtt": [ VocabularyTable, Arn ], "index", "DateIndex" ] ]
             - "Fn::GetAtt": [ UserTable, Arn ]
+            - "Fn::Join": [ "/", [ "Fn::GetAtt": [ UserTable, Arn ], "index", "CourseIndex" ] ]
     # deploymentRole: arn:aws:iam::${aws:accountId}:role/RoleForServerlessDeploy
   tracing:
     lambda: true
@@ -122,15 +124,24 @@ resources:
       Properties:
         TableName: ${self:custom.vocabularyTableName}
         AttributeDefinitions:
-          - AttributeName: date
+          - AttributeName: pk
             AttributeType: S
-          - AttributeName: userId
+          - AttributeName: sk
+            AttributeType: S
+          - AttributeName: date
             AttributeType: S
         KeySchema:
-          - AttributeName: date
+          - AttributeName: pk
             KeyType: HASH
-          - AttributeName: userId
+          - AttributeName: sk
             KeyType: RANGE
+        GlobalSecondaryIndexes:
+          - IndexName: DateIndex
+            KeySchema:
+              - AttributeName: date
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
         BillingMode: PAY_PER_REQUEST
     UserTable:
       Type: AWS::DynamoDB::Table
@@ -141,18 +152,14 @@ resources:
             AttributeType: S
           - AttributeName: course
             AttributeType: S
-          - AttributeName: level
-            AttributeType: S
         KeySchema:
           - AttributeName: userId
             KeyType: HASH
         GlobalSecondaryIndexes:
-          - IndexName: CourseLevelIndex
+          - IndexName: CourseIndex
             KeySchema:
               - AttributeName: course
                 KeyType: HASH
-              - AttributeName: level
-                KeyType: RANGE
             Projection:
               ProjectionType: ALL
         BillingMode: PAY_PER_REQUEST

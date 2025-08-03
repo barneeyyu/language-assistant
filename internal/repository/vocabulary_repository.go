@@ -34,12 +34,15 @@ func (r *vocabularyRepository) SaveWord(word, partOfSpeech, translation, sentenc
 	today := now.Format("2006-01-02")
 	timestamp := now.Format(time.RFC3339)
 
+	// 新的 key 結構：PK = userId#vocabulary, SK = date
+	pk := fmt.Sprintf("%s#vocabulary", userID)
+	
 	// get user vocabulary of today
 	result, err := r.dynamodb.GetItem(context.Background(), &dynamodb.GetItemInput{
 		TableName: aws.String(r.tableName),
 		Key: map[string]types.AttributeValue{
-			"date":   &types.AttributeValueMemberS{Value: today},
-			"userId": &types.AttributeValueMemberS{Value: userID},
+			"pk": &types.AttributeValueMemberS{Value: pk},
+			"sk": &types.AttributeValueMemberS{Value: today},
 		},
 	})
 
@@ -93,8 +96,10 @@ func (r *vocabularyRepository) SaveWord(word, partOfSpeech, translation, sentenc
 	_, err = r.dynamodb.PutItem(context.Background(), &dynamodb.PutItemInput{
 		TableName: aws.String(r.tableName),
 		Item: map[string]types.AttributeValue{
-			"date":      &types.AttributeValueMemberS{Value: userVoca.Date},
+			"pk":        &types.AttributeValueMemberS{Value: pk},
+			"sk":        &types.AttributeValueMemberS{Value: userVoca.Date},
 			"userId":    &types.AttributeValueMemberS{Value: userVoca.UserID},
+			"date":      &types.AttributeValueMemberS{Value: userVoca.Date},
 			"words":     &types.AttributeValueMemberS{Value: string(wordsJSON)},
 			"updatedAt": &types.AttributeValueMemberS{Value: userVoca.UpdatedAt},
 		},
@@ -105,4 +110,103 @@ func (r *vocabularyRepository) SaveWord(word, partOfSpeech, translation, sentenc
 	}
 
 	return nil
+}
+
+func (r *vocabularyRepository) GetUserVocabularyByDate(userID, date string) (*models.UserVocabulary, error) {
+	pk := fmt.Sprintf("%s#vocabulary", userID)
+	
+	result, err := r.dynamodb.GetItem(context.Background(), &dynamodb.GetItemInput{
+		TableName: aws.String(r.tableName),
+		Key: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: pk},
+			"sk": &types.AttributeValueMemberS{Value: date},
+		},
+	})
+
+	if err != nil {
+		r.logger.WithError(err).Error("Failed to get user vocabulary from DynamoDB")
+		return nil, fmt.Errorf("failed to get user vocabulary: %w", err)
+	}
+
+	if result.Item == nil {
+		// No vocabulary found for this date
+		return nil, nil
+	}
+
+	var userVoca models.UserVocabulary
+	userVoca.UserID = userID
+	userVoca.Date = date
+
+	// Extract updatedAt
+	if attr, ok := result.Item["updatedAt"].(*types.AttributeValueMemberS); ok {
+		userVoca.UpdatedAt = attr.Value
+	}
+
+	// Extract and parse words
+	if attr, ok := result.Item["words"].(*types.AttributeValueMemberS); ok {
+		if err := json.Unmarshal([]byte(attr.Value), &userVoca.Words); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal words: %w", err)
+		}
+	} else {
+		userVoca.Words = []models.WordRecord{}
+	}
+
+	return &userVoca, nil
+}
+
+func (r *vocabularyRepository) GetAllUserVocabularies(userID string) ([]models.UserVocabulary, error) {
+	pk := fmt.Sprintf("%s#vocabulary", userID)
+	
+	result, err := r.dynamodb.Query(context.Background(), &dynamodb.QueryInput{
+		TableName:              aws.String(r.tableName),
+		KeyConditionExpression: aws.String("pk = :pk"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":pk": &types.AttributeValueMemberS{Value: pk},
+		},
+		ScanIndexForward: aws.Bool(false), // 最新的日期在前
+	})
+
+	if err != nil {
+		r.logger.WithError(err).Error("Failed to query user vocabularies from DynamoDB")
+		return nil, fmt.Errorf("failed to query user vocabularies: %w", err)
+	}
+
+	if result.Items == nil {
+		return []models.UserVocabulary{}, nil
+	}
+
+	var userVocabularies []models.UserVocabulary
+	for _, item := range result.Items {
+		var userVoca models.UserVocabulary
+		userVoca.UserID = userID
+
+		// Extract date from SK
+		if attr, ok := item["sk"].(*types.AttributeValueMemberS); ok {
+			userVoca.Date = attr.Value
+		}
+
+		// Extract updatedAt
+		if attr, ok := item["updatedAt"].(*types.AttributeValueMemberS); ok {
+			userVoca.UpdatedAt = attr.Value
+		}
+
+		// Extract and parse words
+		if attr, ok := item["words"].(*types.AttributeValueMemberS); ok {
+			if err := json.Unmarshal([]byte(attr.Value), &userVoca.Words); err != nil {
+				r.logger.WithError(err).Error("Failed to unmarshal words field")
+				continue
+			}
+		} else {
+			userVoca.Words = []models.WordRecord{}
+		}
+
+		userVocabularies = append(userVocabularies, userVoca)
+	}
+
+	r.logger.WithFields(logrus.Fields{
+		"userId": userID,
+		"count":  len(userVocabularies),
+	}).Info("Successfully retrieved user vocabularies")
+
+	return userVocabularies, nil
 }
