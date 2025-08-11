@@ -63,7 +63,7 @@ func (c *OpenaiClient) Translate(inputMsg string) (TranslationResponse, error) {
 	resp, err := c.client.CreateChatCompletion(
 		context.Background(),
 		openai.ChatCompletionRequest{
-			Model: openai.GPT4,
+			Model: openai.GPT4oMini,
 			Messages: []openai.ChatCompletionMessage{
 				{
 					Role:    openai.ChatMessageRoleSystem,
@@ -74,7 +74,7 @@ func (c *OpenaiClient) Translate(inputMsg string) (TranslationResponse, error) {
 					Content: inputMsg,
 				},
 			},
-			Temperature: 0.0,
+			Temperature: 0.1,
 		},
 	)
 	if err != nil {
