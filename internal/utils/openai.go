@@ -14,12 +14,30 @@ import (
 //go:embed prompt/translation_parser.yaml
 var translationParserYAML []byte
 
+//go:embed prompt/word_generator.yaml
+var wordGeneratorYAML []byte
+
 type ParserPrompt struct {
 	SystemPrompt string `yaml:"system_prompt"`
 }
 
 type TranslationResponse struct {
 	Translations []Translation `json:"translations"`
+}
+
+type WordGenerationResponse struct {
+	Words []Word `json:"words"`
+}
+
+type Word struct {
+	Word         string   `json:"word"`
+	PartOfSpeech string   `json:"partOfSpeech"`
+	Meaning      string   `json:"meaning"`
+	Example      Example  `json:"example"`
+	Synonyms     []string `json:"synonyms"`
+	Antonyms     []string `json:"antonyms"`
+	Difficulty   string   `json:"difficulty"`
+	Category     string   `json:"category"`
 }
 
 type Translation struct {
@@ -38,6 +56,7 @@ type Example struct {
 
 type OpenaiAPI interface {
 	Translate(inputMsg string) (TranslationResponse, error)
+	GenerateWord(course string, wordCount int, level int) (WordGenerationResponse, error)
 }
 
 type OpenaiClient struct {
@@ -100,6 +119,50 @@ func (c *OpenaiClient) Translate(inputMsg string) (TranslationResponse, error) {
 	}
 
 	return translationResponse, nil
+}
+
+func (c *OpenaiClient) GenerateWord(course string, wordCount int, level int) (WordGenerationResponse, error) {
+	var prompt ParserPrompt
+	err := yaml.Unmarshal(wordGeneratorYAML, &prompt)
+	if err != nil {
+		return WordGenerationResponse{}, fmt.Errorf("error parsing word generator prompt yaml: %w", err)
+	}
+
+	// Replace template variables in the system prompt
+	systemPrompt := strings.ReplaceAll(prompt.SystemPrompt, "{{.Course}}", course)
+	systemPrompt = strings.ReplaceAll(systemPrompt, "{{.WordCount}}", fmt.Sprintf("%d", wordCount))
+	systemPrompt = strings.ReplaceAll(systemPrompt, "{{.Level}}", fmt.Sprintf("%d", level))
+
+	resp, err := c.client.CreateChatCompletion(
+		context.Background(),
+		openai.ChatCompletionRequest{
+			Model: openai.GPT4oMini,
+			Messages: []openai.ChatCompletionMessage{
+				{
+					Role:    openai.ChatMessageRoleSystem,
+					Content: systemPrompt,
+				},
+				{
+					Role:    openai.ChatMessageRoleUser,
+					Content: fmt.Sprintf("請生成 %d 個適合 %s 考試 %d 分程度的英文單字", wordCount, course, level),
+				},
+			},
+			Temperature: 0.7,
+		},
+	)
+	if err != nil {
+		return WordGenerationResponse{}, fmt.Errorf("OpenAI API error: %w", err)
+	}
+
+	content := resp.Choices[0].Message.Content
+
+	var wordResponse WordGenerationResponse
+	err = json.Unmarshal([]byte(content), &wordResponse)
+	if err != nil {
+		return WordGenerationResponse{}, fmt.Errorf("error unmarshalling word generation API response: %w", err)
+	}
+
+	return wordResponse, nil
 }
 
 func (t Translation) String() string {

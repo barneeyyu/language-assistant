@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"language-assistant/internal/repository"
+	"language-assistant/internal/utils"
 	"os"
 
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	"github.com/line/line-bot-sdk-go/v7/linebot"
 	"github.com/sirupsen/logrus"
 )
 
@@ -22,37 +22,16 @@ const (
 )
 
 type EnvVars struct {
-	botClient           *linebot.Client
 	vocabularyTableName string
 }
 
 func getEnvironmentVariables() (envVars *EnvVars, err error) {
-	channelSecret := os.Getenv("CHANNEL_SECRET")
-	if channelSecret == "" {
-		return nil, errors.New("CHANNEL_SECRET is not set")
-	}
-
-	channelToken := os.Getenv("CHANNEL_TOKEN")
-	if channelToken == "" {
-		return nil, errors.New("CHANNEL_TOKEN is not set")
-	}
-
-	// initialize LINE Bot
-	bot, err := linebot.New(
-		channelSecret,
-		channelToken,
-	)
-	if err != nil {
-		return nil, errors.New("initial line bot failed")
-	}
-
 	vocabularyTableName := os.Getenv("VOCABULARY_TABLE_NAME")
 	if vocabularyTableName == "" {
 		return nil, errors.New("VOCABULARY_TABLE_NAME is not set")
 	}
 
 	return &EnvVars{
-		botClient:           bot,
 		vocabularyTableName: vocabularyTableName,
 	}, nil
 }
@@ -81,7 +60,24 @@ func main() {
 
 	reminderRepo := repository.NewReminderRepository(logger, dynamodbClient, envVars.vocabularyTableName)
 
-	handler, err := NewHandler(logger, envVars, reminderRepo)
+	// Get environment variables for LINE Bot
+	channelSecret := os.Getenv("CHANNEL_SECRET")
+	if channelSecret == "" {
+		panic(errors.New("CHANNEL_SECRET is not set"))
+	}
+
+	channelToken := os.Getenv("CHANNEL_TOKEN")
+	if channelToken == "" {
+		panic(errors.New("CHANNEL_TOKEN is not set"))
+	}
+
+	linebotClient, err := utils.NewLineBotClient(channelSecret, channelToken)
+	if err != nil {
+		logger.WithError(err).Error("Failed to create LINE Bot client")
+		panic(err)
+	}
+
+	handler, err := NewHandler(logger, envVars, reminderRepo, linebotClient)
 	if err != nil {
 		logger.WithError(err).Error("Failed to create handler")
 		panic(err)

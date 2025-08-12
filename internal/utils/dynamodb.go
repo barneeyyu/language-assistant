@@ -33,3 +33,12 @@ type UserConfigRepository interface {
 	GetUserConfig(userID string) (*models.UserConfig, error)
 	GetUsersByCourse(course string) ([]models.UserConfig, error)
 }
+
+// BloomFilterRepository defines Bloom Filter related database operations
+type BloomFilterRepository interface {
+	GetBloomFilter(userID, course string) (*models.BloomFilter, error)
+	SaveBloomFilter(filter *models.BloomFilter, course string) error
+	AddWordToBloomFilter(userID, word, course string) error
+	FilterWords(userID, course string, words []Word) ([]Word, error)
+	AddWordsToBloomFilter(userID, course string, words []Word) error
+}

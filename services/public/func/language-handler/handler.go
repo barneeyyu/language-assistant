@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"language-assistant/internal/utils"
@@ -9,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/aws/aws-lambda-go/events"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/line/line-bot-sdk-go/v7/linebot"
 	"github.com/sirupsen/logrus"
 )
@@ -20,9 +23,10 @@ type Handler struct {
 	openaiClient   utils.OpenaiAPI
 	vocabularyRepo utils.VocabularyRepository
 	userConfigRepo utils.UserConfigRepository
+	lambdaClient   *lambda.Client
 }
 
-func NewHandler(logger *logrus.Entry, envVars *EnvVars, linebotClient utils.LinebotAPI, openaiClient utils.OpenaiAPI, vocabularyRepo utils.VocabularyRepository, userConfigRepo utils.UserConfigRepository) (*Handler, error) {
+func NewHandler(logger *logrus.Entry, envVars *EnvVars, linebotClient utils.LinebotAPI, openaiClient utils.OpenaiAPI, vocabularyRepo utils.VocabularyRepository, userConfigRepo utils.UserConfigRepository, lambdaClient *lambda.Client) (*Handler, error) {
 	return &Handler{
 		logger:         logger,
 		envVars:        envVars,
@@ -30,6 +34,7 @@ func NewHandler(logger *logrus.Entry, envVars *EnvVars, linebotClient utils.Line
 		openaiClient:   openaiClient,
 		vocabularyRepo: vocabularyRepo,
 		userConfigRepo: userConfigRepo,
+		lambdaClient:   lambdaClient,
 	}, nil
 }
 
@@ -79,7 +84,7 @@ func (h *Handler) EventHandler(request events.APIGatewayProxyRequest) (events.AP
 					h.handlePushSettings(event.ReplyToken, event.Source.UserID)
 					continue
 				case "/使用預設設定":
-					h.handleSkipPushSettings(event.ReplyToken)
+					h.handleSkipPushSettings(event.ReplyToken, event.Source.UserID)
 					continue
 				default:
 					// 檢查是否是推播設定相關的回應
@@ -268,13 +273,8 @@ func (h *Handler) handleScoreInput(replyToken, userID, text string) bool {
 		return true // 雖然分數無效，但確實是分數輸入嘗試
 	}
 
-	// 一但用戶更新分數，就需要設定用戶其他預設欄位
-	userConfig.DailyWords = 10          // 預設每日單字數量
-	userConfig.PushTime = "08:00"       // 預設推播時間
-	userConfig.Timezone = "Asia/Taipei" // 預設時區
-
 	// 更新用戶設定
-	if err := h.userConfigRepo.SaveUserConfig(userID, userConfig.Course, score, userConfig.DailyWords, userConfig.PushTime, userConfig.Timezone); err != nil {
+	if err := h.userConfigRepo.SaveUserConfig(userID, userConfig.Course, score, 0, "", ""); err != nil {
 		h.logger.WithError(err).Error("Failed to update user config with score")
 		h.linebotClient.ReplyMessage(replyToken, "抱歉，分數設定過程發生錯誤，請稍後再試。")
 		return true
@@ -312,7 +312,7 @@ func (h *Handler) handlePushSettings(replyToken, userID string) {
 		h.linebotClient.ReplyMessage(replyToken, "抱歉，設定過程發生錯誤，請稍後再試。")
 		return
 	}
-	
+
 	if userConfig != nil && userConfig.Course != "" {
 		// 用戶已有課程設定，直接進入單字量選擇
 		var courseName string
@@ -321,11 +321,11 @@ func (h *Handler) handlePushSettings(replyToken, userID string) {
 		} else {
 			courseName = "雅思"
 		}
-		
+
 		message := fmt.Sprintf("📱 設定 %s 推播詳細選項\n\n請選擇每天要收到幾個單字：", courseName)
-		
+
 		textMessage := linebot.NewTextMessage(message)
-		
+
 		// 單字量選擇的 Quick Reply
 		quickReply := linebot.NewQuickReplyItems(
 			linebot.NewQuickReplyButton("", linebot.NewMessageAction("5個單字", "單字量:5")),
@@ -333,12 +333,12 @@ func (h *Handler) handlePushSettings(replyToken, userID string) {
 			linebot.NewQuickReplyButton("", linebot.NewMessageAction("15個單字", "單字量:15")),
 			linebot.NewQuickReplyButton("", linebot.NewMessageAction("20個單字", "單字量:20")),
 		)
-		
+
 		textMessageWithQuickReply := textMessage.WithQuickReplies(quickReply)
-		
+
 		// 暫存用戶已有的課程
 		h.tempStoreCourse(userID, userConfig.Course)
-		
+
 		if err := h.linebotClient.ReplyMessageWithMultiple(replyToken, textMessageWithQuickReply); err != nil {
 			h.logger.Error("Failed to send daily words selection: ", err)
 		}
@@ -348,11 +348,46 @@ func (h *Handler) handlePushSettings(replyToken, userID string) {
 	}
 }
 
-func (h *Handler) handleSkipPushSettings(replyToken string) {
-	message := "現在你可以開始使用翻譯功能，可以嘗試輸入任何「英文」或「中文」單字。\n\n📍 如果之後想設定推播，可以隨時輸入「/設定推播」。"
+func (h *Handler) handleSkipPushSettings(replyToken, userID string) {
+	// 獲取用戶當前設定
+	userConfig, err := h.userConfigRepo.GetUserConfig(userID)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to get user config")
+		h.linebotClient.ReplyMessage(replyToken, "抱歉，設定過程發生錯誤，請稍後再試。")
+		return
+	}
+
+	if userConfig == nil {
+		h.linebotClient.ReplyMessage(replyToken, "請先設定課程和分數。")
+		return
+	}
+
+	// 使用預設設定：10個單字，早上8:00推播
+	userConfig.DailyWords = 10          // 預設每日單字數量
+	userConfig.PushTime = "08:00"       // 預設推播時間
+	userConfig.Timezone = "Asia/Taipei" // 預設時區
+
+	// 使用預設設定：10個單字，早上8:00推播
+	if err := h.userConfigRepo.SaveUserConfig(userID, userConfig.Course, userConfig.Level, userConfig.DailyWords, userConfig.PushTime, userConfig.Timezone); err != nil {
+		h.logger.WithError(err).Error("Failed to save default push settings")
+		h.linebotClient.ReplyMessage(replyToken, "抱歉，設定過程發生錯誤，請稍後再試。")
+		return
+	}
+
+	var courseName string
+	if userConfig.Course == "toeic" {
+		courseName = "多益"
+	} else {
+		courseName = "雅思"
+	}
+
+	message := fmt.Sprintf("🎉 已使用預設推播設定！\n\n📱 你的推播設定：\n• 課程：%s\n• 每天 10 個單字\n• 推播時間：08:00\n\n🚀 馬上為您推播 %s 單字，下一次會於明天 08:00 推播！\n\n現在你可以開始使用翻譯功能！", courseName, courseName)
+
+	// 立即推播第一次單字
+	go h.triggerImmediateWordPush(userID)
 
 	if err := h.linebotClient.ReplyMessage(replyToken, message); err != nil {
-		h.logger.Error("Failed to send skip confirmation: ", err)
+		h.logger.Error("Failed to send default settings confirmation: ", err)
 	}
 }
 
@@ -478,7 +513,10 @@ func (h *Handler) handlePushTimeSelection(replyToken, userID, pushTime string) {
 			courseName = "雅思"
 		}
 
-		message := fmt.Sprintf("🎉 推播設定完成！\n\n📱 你的推播設定：\n• 課程：%s\n• 每天 %d 個單字\n• 推播時間：%s\n• 明天開始推播\n\n現在你可以開始使用翻譯功能！", courseName, dailyWords, pushTime)
+		message := fmt.Sprintf("🎉 推播設定完成！\n\n📱 你的推播設定：\n• 課程：%s\n• 每天 %d 個單字\n• 推播時間：%s\n\n🚀 馬上為您推播 %s 單字，下一次會於明天 %s 推播！\n\n現在你可以開始使用翻譯功能！", courseName, dailyWords, pushTime, courseName, pushTime)
+
+		// 立即推播第一次單字
+		go h.triggerImmediateWordPush(userID)
 
 		if err := h.linebotClient.ReplyMessage(replyToken, message); err != nil {
 			h.logger.Error("Failed to send push settings confirmation: ", err)
@@ -509,7 +547,17 @@ func (h *Handler) handlePushTimeSelection(replyToken, userID, pushTime string) {
 	// 清理臨時存儲
 	h.clearTempDailyWords(userID)
 
-	message := fmt.Sprintf("🎉 推播設定完成！\n\n📱 你的推播設定：\n• 每天 %d 個單字\n• 推播時間：%s\n• 明天開始推播\n\n現在你可以開始使用翻譯功能，我會根據你的程度提供合適的單字學習。", dailyWords, pushTime)
+	var courseName string
+	if userConfig.Course == "toeic" {
+		courseName = "多益"
+	} else {
+		courseName = "雅思"
+	}
+
+	message := fmt.Sprintf("🎉 推播設定完成！\n\n📱 你的推播設定：\n• 每天 %d 個單字\n• 推播時間：%s\n\n🚀 馬上為您推播 %s 單字，下一次會於明天 %s 推播！\n\n現在你可以開始使用翻譯功能，我會根據你的程度提供合適的單字學習。", dailyWords, pushTime, courseName, pushTime)
+
+	// 立即推播第一次單字
+	go h.triggerImmediateWordPush(userID)
 
 	if err := h.linebotClient.ReplyMessage(replyToken, message); err != nil {
 		h.logger.Error("Failed to send push settings confirmation: ", err)
@@ -615,4 +663,36 @@ func (h *Handler) handlePushSettingsStart(replyToken string) {
 	if err := h.linebotClient.ReplyMessageWithMultiple(replyToken, textMessage, templateMessage); err != nil {
 		h.logger.Error("Failed to send push settings course selection: ", err)
 	}
+}
+
+// triggerImmediateWordPush 立即invoke language-vocabulary lambda推播一次單字給用戶
+func (h *Handler) triggerImmediateWordPush(userID string) {
+	h.logger.Infof("Triggering immediate word push for user %s", userID)
+
+	// 構造 lambda invoke 請求
+	requestPayload := map[string]string{
+		"userId": userID,
+	}
+
+	payloadBytes, err := json.Marshal(requestPayload)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to marshal lambda invoke payload")
+		return
+	}
+
+	// Invoke language-vocabulary lambda
+	input := &lambda.InvokeInput{
+		FunctionName:   aws.String("language-vocabulary"), // Lambda function name
+		InvocationType: "Event",                           // 異步調用，不等待回應
+		Payload:        payloadBytes,
+	}
+
+	ctx := context.Background()
+	_, err = h.lambdaClient.Invoke(ctx, input)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to invoke language-vocabulary lambda")
+		return
+	}
+
+	h.logger.Infof("Successfully triggered immediate word push for user %s", userID)
 }

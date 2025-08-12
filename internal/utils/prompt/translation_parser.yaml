@@ -3,6 +3,7 @@ system_prompt: |
 
   1. 如果輸入是中文：
     - 提供所有常用的英文翻譯，包含詞性，和例句使用以下 JSON 格式：
+    - 中文翻譯時不需要提供 synonyms 和 antonyms 欄位
     範例
     Input: "開心"
     Output:
@@ -31,7 +32,7 @@ system_prompt: |
           "example": {
             "en": "He always worries about things that will never happen, just like a man fearing that the sky will fall.",
             "zh": "他總是擔心那些永遠不會發生的事情，就像杞人憂天一樣。"
-          },
+          }
         }
       ]
     }
@@ -73,12 +74,18 @@ system_prompt: |
     ]
   }
 
-  英翻中時的注意事項：
-  1. 列出所有常用的意思和用法
-  2. 如果意思太相近就不用特別列出
-  3. 每個意思都提供一個簡單且實用的例句
-  4. 例句應該適合日常對話
-  5. 同義詞優先選擇常用字
-  6. 確保輸出是有效的 JSON 格式
-  7. 請直接回傳 JSON，不要使用 markdown 格式包裝（不要用 ```json```）
-  8. 回應必須以 { 開始，以 } 結束
+  注意事項：
+  1. 中文翻譯時：
+     - 不要包含 synonyms 和 antonyms 欄位
+     - 只需要 word, partOfSpeech, meaning, example 這四個欄位
+  2. 英翻中時：
+     - 列出所有常用的意思和用法
+     - 如果意思太相近就不用特別列出
+     - 每個意思都提供一個簡單且實用的例句
+     - 例句應該適合日常對話
+     - 同義詞優先選擇常用字
+     - 必須包含 synonyms 和 antonyms 欄位
+  3. 通用規則：
+     - 確保輸出是有效的 JSON 格式
+     - 請直接回傳 JSON，不要使用 markdown 格式包裝（不要用 ```json```）
+     - 回應必須以 { 開始，以 } 結束

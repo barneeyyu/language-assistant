@@ -22,6 +22,7 @@ type WordRecord struct {
 
 func FormatWordRecords(records interface{}) string {
 	var sb strings.Builder
+	sb.WriteString("【每日單字回顧】📚\n\n")
 	switch v := records.(type) {
 	case WordRecord:
 		sb.WriteString(fmt.Sprintf("【%s】(%s)\n", v.Word, v.PartOfSpeech))

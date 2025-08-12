@@ -46,6 +46,11 @@ provider:
             - "Fn::Join": [ "/", [ "Fn::GetAtt": [ VocabularyTable, Arn ], "index", "DateIndex" ] ]
             - "Fn::GetAtt": [ UserTable, Arn ]
             - "Fn::Join": [ "/", [ "Fn::GetAtt": [ UserTable, Arn ], "index", "CourseIndex" ] ]
+        - Effect: Allow
+          Action:
+            - lambda:InvokeFunction
+          Resource:
+            - !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:language-vocabulary
     # deploymentRole: arn:aws:iam::${aws:accountId}:role/RoleForServerlessDeploy
   tracing:
     lambda: true
@@ -116,6 +121,20 @@ functions:
       - http:
           path: /api/language-reminder
           method: post
+  language-vocabulary:
+    runtime: provided.al2023
+    package:
+      artifact: ${env:ARTIFACT_LOC, 'func'}/language-vocabulary.zip
+    handler: bootstrap
+    name: language-vocabulary
+    environment:
+      OPENAI_BASE_URL: ${env:OPENAI_BASE_URL}
+      OPENAI_API_KEY: ${env:OPENAI_API_KEY}
+      USER_TABLE_NAME: ${self:custom.userTableName}
+      VOCABULARY_TABLE_NAME: ${self:custom.vocabularyTableName}
+      CHANNEL_TOKEN: ${env:CHANNEL_TOKEN}
+      CHANNEL_SECRET: ${env:CHANNEL_SECRET}
+    timeout: 60
 
 resources:
   Resources:

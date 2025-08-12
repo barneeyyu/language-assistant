@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/aws/aws-lambda-go/events"
-	"github.com/line/line-bot-sdk-go/v7/linebot"
 	"github.com/sirupsen/logrus"
 )
 
@@ -16,17 +15,19 @@ type Handler struct {
 	logger       *logrus.Entry
 	envVars      *EnvVars
 	reminderRepo utils.ReminderRepository
+	linebotClient utils.LinebotAPI
 }
 
 type ReminderEvent struct {
 	Date string `json:"date"`
 }
 
-func NewHandler(logger *logrus.Entry, envVars *EnvVars, reminderRepo utils.ReminderRepository) (*Handler, error) {
+func NewHandler(logger *logrus.Entry, envVars *EnvVars, reminderRepo utils.ReminderRepository, linebotClient utils.LinebotAPI) (*Handler, error) {
 	return &Handler{
-		logger:       logger,
-		envVars:      envVars,
-		reminderRepo: reminderRepo,
+		logger:        logger,
+		envVars:       envVars,
+		reminderRepo:  reminderRepo,
+		linebotClient: linebotClient,
 	}, nil
 }
 
@@ -55,11 +56,8 @@ func (h *Handler) EventHandler(ctx context.Context, req events.APIGatewayProxyRe
 
 	for index, dailyUserData := range userVoca {
 		h.logger.Infof("Currently handle %d user: %s", index, dailyUserData.UserID)
-		message := linebot.NewTextMessage(models.FormatWordRecords(dailyUserData.Words)).
-			WithSender(&linebot.Sender{
-				Name: "Reminder Bot",
-			})
-		if _, err := h.envVars.botClient.PushMessage(dailyUserData.UserID, message).Do(); err != nil {
+		messageText := models.FormatWordRecords(dailyUserData.Words)
+		if err := h.linebotClient.PushMessage(dailyUserData.UserID, messageText); err != nil {
 			h.logger.WithError(err).Error("Failed to send reminder message")
 			return events.APIGatewayProxyResponse{
 				StatusCode: 500,
