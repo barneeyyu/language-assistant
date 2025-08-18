@@ -93,7 +93,7 @@ func (c *OpenaiClient) Translate(inputMsg string) (TranslationResponse, error) {
 					Content: inputMsg,
 				},
 			},
-			Temperature: 0.1,
+			Temperature: 1.0,
 		},
 	)
 	if err != nil {
@@ -136,7 +136,7 @@ func (c *OpenaiClient) GenerateWord(course string, wordCount int, level int) (Wo
 	resp, err := c.client.CreateChatCompletion(
 		context.Background(),
 		openai.ChatCompletionRequest{
-			Model: openai.GPT4oMini,
+			Model: openai.GPT5,
 			Messages: []openai.ChatCompletionMessage{
 				{
 					Role:    openai.ChatMessageRoleSystem,
@@ -147,7 +147,7 @@ func (c *OpenaiClient) GenerateWord(course string, wordCount int, level int) (Wo
 					Content: fmt.Sprintf("請生成 %d 個適合 %s 考試 %d 分程度的英文單字", wordCount, course, level),
 				},
 			},
-			Temperature: 0.7,
+			Temperature: 1.0,
 		},
 	)
 	if err != nil {

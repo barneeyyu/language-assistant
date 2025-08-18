@@ -11,7 +11,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue v1.18.8
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.42.0
 	github.com/line/line-bot-sdk-go/v7 v7.21.0
-	github.com/sashabaranov/go-openai v1.36.1
+	github.com/sashabaranov/go-openai v1.41.1
 	github.com/sirupsen/logrus v1.9.3
 	gopkg.in/yaml.v2 v2.4.0
 )
@@ -29,6 +29,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/endpoint-discovery v1.10.15 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.12.9 // indirect
 	github.com/aws/aws-sdk-go-v2/service/lambda v1.76.0
+	github.com/aws/aws-sdk-go-v2/service/scheduler v1.16.0
 	github.com/aws/aws-sdk-go-v2/service/sso v1.24.11 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.28.10 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.33.9 // indirect

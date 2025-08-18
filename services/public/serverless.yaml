@@ -51,6 +51,20 @@ provider:
             - lambda:InvokeFunction
           Resource:
             - !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:language-vocabulary
+        - Effect: Allow
+          Action:
+            - scheduler:CreateSchedule
+            - scheduler:DeleteSchedule
+            - scheduler:GetSchedule
+            - scheduler:UpdateSchedule
+          Resource:
+            - !Sub arn:aws:scheduler:${AWS::Region}:${AWS::AccountId}:schedule/*/*
+            - !Sub arn:aws:scheduler:${AWS::Region}:${AWS::AccountId}:schedule-group/default
+        - Effect: Allow
+          Action:
+            - iam:PassRole
+          Resource:
+            - !GetAtt SchedulerRole.Arn
     # deploymentRole: arn:aws:iam::${aws:accountId}:role/RoleForServerlessDeploy
   tracing:
     lambda: true
@@ -98,6 +112,8 @@ functions:
       OPENAI_API_KEY: ${env:OPENAI_API_KEY}
       VOCABULARY_TABLE_NAME: ${self:custom.vocabularyTableName}
       USER_TABLE_NAME: ${self:custom.userTableName}
+      VOCABULARY_FUNCTION_ARN: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:language-vocabulary
+      SCHEDULER_ROLE_ARN: !GetAtt SchedulerRole.Arn
     timeout: 30
     events:
       - http:
@@ -182,6 +198,27 @@ resources:
             Projection:
               ProjectionType: ALL
         BillingMode: PAY_PER_REQUEST
+    SchedulerRole:
+      Type: AWS::IAM::Role
+      Properties:
+        RoleName: ${self:service}-${self:provider.stage}-scheduler-role
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service: scheduler.amazonaws.com
+              Action: sts:AssumeRole
+        Policies:
+          - PolicyName: InvokeLambdaPolicy
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - lambda:InvokeFunction
+                  Resource:
+                    - !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:language-vocabulary
   # API domain mapping
   # - ${file(apiMapping.yaml)}
   # - ${file(apiGatewayAlarm.yaml)}

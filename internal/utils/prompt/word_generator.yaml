@@ -8,14 +8,63 @@ system_prompt: |
 
   生成規則：
   1. 如果是 TOEIC：
-     - 選擇商業、工作、日常生活相關的單字
-     - 根據目標分數調整相對應的難度
-     - 偏重實用性和職場相關詞彙
+    - 選擇商業、工作、日常生活相關的單字
+    - 根據目標分數調整相對應的難度
+    - 偏重實用性和職場相關詞彙
+    - 舉例：
+      - score_band: "200~400"
+        level: "Level 1 — 生存商務詞彙"
+        features: "基礎商務與日常詞彙，能理解簡單工作對話與文件"
+        contexts: "打招呼、時間安排、簡單購物"
+        examples: ["office", "meeting", "lunch", "buy", "send", "report"]
+
+      - score_band: "405~600"
+        level: "Level 2 — 常見工作場景詞"
+        features: "常見於公司內部溝通，能處理一般行政、簡單商務郵件"
+        contexts: "會議、差旅、簡單談判"
+        examples: ["schedule", "client", "budget", "shipment", "approve", "delay"]
+
+      - score_band: "605~800"
+        level: "Level 3 — 中高階商務詞"
+        features: "精確描述工作流程與問題，適用於報告、專案管理"
+        contexts: "合約、專案、財報、客服"
+        examples: ["negotiate", "revenue", "logistics", "implement", "feedback", "expand"]
+
+      - score_band: "805~990"
+        level: "Level 4 — 高階專業詞"
+        features: "涉及專業領域、策略規劃與跨國溝通；能用於高層會議與正式文件"
+        contexts: "財經、行銷、法律、科技"
+        examples: ["diversify", "acquisition", "compliance", "benchmark", "sustainable", "contingency"]
   
   2. 如果是 IELTS：
-     - 選擇學術、教育、社會議題相關的單字
-     - 根據目標分數調整相對應的難度：
-     - 偏重學術性和抽象概念詞彙
+    - 選擇學術、教育、社會議題相關的單字
+    - 根據目標分數調整相對應的難度：
+    - 偏重學術性和抽象概念詞彙
+    - 舉例：
+      - score_band: "Band 1~2"
+        level: "Level 1 — 生存詞彙"
+        features: "僅限最基本的溝通字，日常高頻，幾乎不用思考就能理解"
+        sources: "生活常用詞、基礎動詞/形容詞"
+        examples: ["large", "tiny", "eat", "walk", "nice", "poor"]
+
+      - score_band: "Band 3~4"
+        level: "Level 2 — 日常中高頻詞"
+        features: "生活中常見，但比 Level 1 更有描述性；用在口說/寫作能替換掉簡單字"
+        sources: "高頻日常形容詞/動詞 + 常用名詞"
+        examples: ["pleasant", "tasty", "packed", "enhance", "lend", "hazardous", "contaminated"]
+
+      - score_band: "Band 5~6"
+        level: "Level 3 — 學術中頻詞"
+        features: "開始用較精確、抽象的詞；常見於新聞、報告、作文"
+        sources: "學術常用字表 (AWL) 前 500 內"
+        examples: ["substantial", "escalate", "advantage", "obstacle", "ecological", "impact", "productive"]
+
+      - score_band: "Band 7+"
+        level: "Level 4 — 高階學術詞/低頻詞"
+        features: "含抽象、專業或隱喻意義，搭配詞複雜，口語寫作自然切換"
+        sources: "學術高頻詞 + 專業術語"
+        examples: ["ameliorate", "omnipresent", "aggravate", "paradigm", "alleviate", "sustainable", "quintessence"]
+
 
   請使用以下 JSON 格式回傳：
   {
@@ -53,7 +102,7 @@ system_prompt: |
 
   注意事項：
   1. 確保所有單字都符合指定考試類型的特色
-  2. 單字難度要符合目標分數，甚至可以再給難一些些
+  2. 單字難度要符合目標分數，可以混雜再難一個階級的
   3. 例句要實用且容易理解
   4. 請直接回傳 JSON，不要使用 markdown 格式包裝
   5. 回應必須以 { 開始，以 } 結束

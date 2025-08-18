@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	lambdaService "github.com/aws/aws-sdk-go-v2/service/lambda"
+	schedulerService "github.com/aws/aws-sdk-go-v2/service/scheduler"
 	"github.com/sirupsen/logrus"
 )
 
@@ -23,12 +24,14 @@ const (
 )
 
 type EnvVars struct {
-	channelSecret       string
-	channelToken        string
-	openaiBaseUrl       string
-	openaiApiKey        string
-	vocabularyTableName string
-	userTableName       string
+	channelSecret         string
+	channelToken          string
+	openaiBaseUrl         string
+	openaiApiKey          string
+	vocabularyTableName   string
+	userTableName         string
+	vocabularyFunctionArn string
+	schedulerRoleArn      string
 }
 
 func getEnvironmentVariables() (envVars *EnvVars, err error) {
@@ -62,13 +65,25 @@ func getEnvironmentVariables() (envVars *EnvVars, err error) {
 		return nil, errors.New("USER_TABLE_NAME is not set")
 	}
 
+	vocabularyFunctionArn := os.Getenv("VOCABULARY_FUNCTION_ARN")
+	if vocabularyFunctionArn == "" {
+		return nil, errors.New("VOCABULARY_FUNCTION_ARN is not set")
+	}
+
+	schedulerRoleArn := os.Getenv("SCHEDULER_ROLE_ARN")
+	if schedulerRoleArn == "" {
+		return nil, errors.New("SCHEDULER_ROLE_ARN is not set")
+	}
+
 	return &EnvVars{
-		channelSecret:       channelSecret,
-		channelToken:        channelToken,
-		openaiBaseUrl:       openaiBaseUrl,
-		openaiApiKey:        openaiApiKey,
-		vocabularyTableName: vocabularyTableName,
-		userTableName:       userTableName,
+		channelSecret:         channelSecret,
+		channelToken:          channelToken,
+		openaiBaseUrl:         openaiBaseUrl,
+		openaiApiKey:          openaiApiKey,
+		vocabularyTableName:   vocabularyTableName,
+		userTableName:         userTableName,
+		vocabularyFunctionArn: vocabularyFunctionArn,
+		schedulerRoleArn:      schedulerRoleArn,
 	}, nil
 }
 
@@ -106,11 +121,12 @@ func main() {
 	}
 	dynamodbClient := dynamodb.NewFromConfig(cfg)
 	lambdaClient := lambdaService.NewFromConfig(cfg)
+	schedulerClient := schedulerService.NewFromConfig(cfg)
 
 	vocabularyRepo := repository.NewVocabularyRepository(logger, dynamodbClient, envVars.vocabularyTableName)
 	userConfigRepo := repository.NewUserConfigRepository(logger, dynamodbClient, envVars.userTableName)
 
-	handler, err := NewHandler(logger, envVars, linebotClient, openaiClient, vocabularyRepo, userConfigRepo, lambdaClient)
+	handler, err := NewHandler(logger, envVars, linebotClient, openaiClient, vocabularyRepo, userConfigRepo, lambdaClient, schedulerClient)
 	if err != nil {
 		logger.WithError(err).Error("Failed to create handler")
 		panic(err)
