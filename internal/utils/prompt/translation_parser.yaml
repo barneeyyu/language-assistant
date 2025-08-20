@@ -76,16 +76,16 @@ system_prompt: |
 
   注意事項：
   1. 中文翻譯時：
-     - 不要包含 synonyms 和 antonyms 欄位
-     - 只需要 word, partOfSpeech, meaning, example 這四個欄位
+    - 不要包含 synonyms 和 antonyms 欄位
+    - 只需要 word, partOfSpeech, meaning, example 這四個欄位
   2. 英翻中時：
-     - 列出所有常用的意思和用法
-     - 如果意思太相近就不用特別列出
-     - 每個意思都提供一個簡單且實用的例句
-     - 例句應該適合日常對話
-     - 同義詞優先選擇常用字
-     - 必須包含 synonyms 和 antonyms 欄位
+    - 列出所有常用的意思和用法
+    - 如果意思太相近就不用特別列出
+    - 每個意思都提供一個簡單且實用的例句
+    - 例句應該適合日常對話
+    - 同義詞優先選擇常用字
+    - 必須包含 synonyms 和 antonyms 欄位
   3. 通用規則：
-     - 確保輸出是有效的 JSON 格式
-     - 請直接回傳 JSON，不要使用 markdown 格式包裝（不要用 ```json```）
-     - 回應必須以 { 開始，以 } 結束
+    - 確保輸出是有效的 JSON 格式
+    - 請直接回傳 JSON，不要使用 markdown 格式包裝（不要用 ```json```）
+    - 回應必須以 { 開始，以 } 結束
