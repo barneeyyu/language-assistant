@@ -2,24 +2,20 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"time"
+
 	"language-assistant/internal/models"
 	"language-assistant/internal/utils"
-	"time"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/sirupsen/logrus"
 )
 
 type Handler struct {
-	logger       *logrus.Entry
-	envVars      *EnvVars
-	reminderRepo utils.ReminderRepository
+	logger        *logrus.Entry
+	envVars       *EnvVars
+	reminderRepo  utils.ReminderRepository
 	linebotClient utils.LinebotAPI
-}
-
-type ReminderEvent struct {
-	Date string `json:"date"`
 }
 
 func NewHandler(logger *logrus.Entry, envVars *EnvVars, reminderRepo utils.ReminderRepository, linebotClient utils.LinebotAPI) (*Handler, error) {
@@ -31,44 +27,38 @@ func NewHandler(logger *logrus.Entry, envVars *EnvVars, reminderRepo utils.Remin
 	}, nil
 }
 
-func (h *Handler) EventHandler(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	if req.Body != "" {
-		var event ReminderEvent
-		if err := json.Unmarshal([]byte(req.Body), &event); err != nil {
-			h.logger.WithError(err).Error("Failed to decode reminder event")
-			return events.APIGatewayProxyResponse{
-				StatusCode: 400,
-				Body:       "Bad request",
-			}, nil
-		}
-		h.logger.Info("Getting the request for date: ", event.Date)
-	}
+func (h *Handler) EventHandler(ctx context.Context, event events.CloudWatchEvent) error {
+	h.logger.WithFields(logrus.Fields{
+		"source":     event.Source,
+		"detailType": event.DetailType,
+		"eventTime":  event.Time,
+	}).Info("Daily reminder cron job triggered")
 
 	date := time.Now().Format("2006-01-02")
-	userVoca, err := h.reminderRepo.GetUserVocabulariesByDate(date)
+	userVocaList, err := h.reminderRepo.GetUserVocabulariesByDate(date)
 	if err != nil {
 		h.logger.WithError(err).Error("Failed to get word")
-		return events.APIGatewayProxyResponse{
-			StatusCode: 500,
-			Body:       "Internal server error",
-		}, nil
+		return err
 	}
 
-	for index, dailyUserData := range userVoca {
-		h.logger.Infof("Currently handle %d user: %s", index, dailyUserData.UserID)
+	// 如果沒有任何用戶有單字需要回顧，直接結束
+	if len(userVocaList) == 0 {
+		h.logger.WithField("date", date).Info("No users with vocabulary to review today, skipping reminder job")
+		return nil
+	}
+
+	for index, dailyUserData := range userVocaList {
+		h.logger.WithFields(logrus.Fields{
+			"userIndex": index,
+			"userID":    dailyUserData.UserID,
+			"wordCount": len(dailyUserData.Words),
+		}).Info("Sending daily reminder to user")
+
 		messageText := models.FormatWordRecords(dailyUserData.Words)
 		if err := h.linebotClient.PushMessage(dailyUserData.UserID, messageText); err != nil {
-			h.logger.WithError(err).Error("Failed to send reminder message")
-			return events.APIGatewayProxyResponse{
-				StatusCode: 500,
-				Body:       "Internal server error",
-			}, nil
+			h.logger.WithError(err).WithField("userID", dailyUserData.UserID).Error("Failed to send reminder message")
+			continue // 繼續處理其他用戶，不要因為一個用戶失敗就中斷整個流程
 		}
 	}
-	h.logger.Info("Successfully sent reminder message")
-	return events.APIGatewayProxyResponse{
-		StatusCode: 200,
-		Body:       "Reminder sent",
-	}, nil
+	return nil
 }
-

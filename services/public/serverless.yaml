@@ -134,9 +134,9 @@ functions:
       VOCABULARY_TABLE_NAME: ${self:custom.vocabularyTableName}
     timeout: 30
     events:
-      - http:
-          path: /api/language-reminder
-          method: post
+      - schedule:
+          rate: cron(0 16 * * ? *)  # 每天凌晨 00:00 台灣時間 (UTC+8 = 16:00 UTC)
+          description: "Daily reminder at midnight Taiwan time"
   language-vocabulary:
     runtime: provided.al2023
     package:
