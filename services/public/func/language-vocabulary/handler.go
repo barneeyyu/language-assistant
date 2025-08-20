@@ -1,12 +1,10 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"language-assistant/internal/utils"
 	"strings"
 
-	"github.com/aws/aws-lambda-go/events"
 	"github.com/sirupsen/logrus"
 )
 
@@ -70,6 +68,13 @@ func (h *Handler) HandleWordPush(request map[string]string) (map[string]interfac
 			"message": "User configuration not found",
 		}, nil
 	}
+	h.logger.WithFields(logrus.Fields{
+		"userId":     userID,
+		"userName":   userConfig.DisplayName,
+		"course":     userConfig.Course,
+		"level":      userConfig.Level,
+		"dailyWords": userConfig.DailyWords,
+	}).Info("Push words started")
 
 	// Generate words based on user configuration with Bloom Filter
 	words, err := h.generateWordsWithBloomFilter(userID, userConfig.Course, userConfig.DailyWords, userConfig.Level)
@@ -112,99 +117,6 @@ func (h *Handler) HandleWordPush(request map[string]string) (map[string]interfac
 			"wordCount": len(words),
 		},
 	}, nil
-}
-
-// func (h *Handler) HandleWordPush(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-// 	h.logger.Info("Received word push request")
-
-// 	// Parse request body
-// 	var req WordPushRequest
-// 	if err := json.Unmarshal([]byte(request.Body), &req); err != nil {
-// 		h.logger.WithError(err).Error("Failed to parse request body")
-// 		return h.errorResponse(400, "Invalid request body"), nil
-// 	}
-
-// 	if req.UserID == "" {
-// 		h.logger.Error("User ID is required")
-// 		return h.errorResponse(400, "User ID is required"), nil
-// 	}
-
-// 	// Get user configuration
-// 	userConfig, err := h.userConfigRepo.GetUserConfig(req.UserID)
-// 	if err != nil {
-// 		h.logger.WithError(err).Error("Failed to get user config")
-// 		return h.errorResponse(500, "Failed to get user configuration"), nil
-// 	}
-
-// 	if userConfig == nil {
-// 		h.logger.Error("User config not found")
-// 		return h.errorResponse(404, "User configuration not found"), nil
-// 	}
-
-// 	// Generate words based on user configuration with Bloom Filter
-// 	words, err := h.generateWordsWithBloomFilter(req.UserID, userConfig.Course, userConfig.DailyWords, userConfig.Level)
-// 	if err != nil {
-// 		h.logger.WithError(err).Error("Failed to generate words")
-// 		return h.errorResponse(500, "Failed to generate words"), nil
-// 	}
-
-// 	// Send words to user via LINE Bot
-// 	err = h.sendWordsToUser(req.UserID, words, userConfig.Course)
-// 	if err != nil {
-// 		h.logger.WithError(err).Error("Failed to send words to user")
-// 		return h.errorResponse(500, "Failed to send words to user"), nil
-// 	}
-
-// 	// Add sent words to Bloom Filter
-// 	err = h.bloomFilterRepo.AddWordsToBloomFilter(req.UserID, userConfig.Course, words)
-// 	if err != nil {
-// 		h.logger.WithError(err).Warn("Failed to add words to bloom filter") // Non-critical error
-// 	}
-
-// 	h.logger.WithFields(logrus.Fields{
-// 		"userId": req.UserID,
-// 		"course": userConfig.Course,
-// 		"count":  len(words),
-// 	}).Info("Successfully pushed words to user")
-
-// 	response := WordPushResponse{
-// 		Status:  "success",
-// 		Message: "Words sent successfully",
-// 		Data: map[string]interface{}{
-// 			"userId":    req.UserID,
-// 			"course":    userConfig.Course,
-// 			"wordCount": len(words),
-// 		},
-// 	}
-
-// 	return h.successResponse(response), nil
-// }
-
-func (h *Handler) errorResponse(statusCode int, message string) events.APIGatewayProxyResponse {
-	response := WordPushResponse{
-		Status:  "error",
-		Message: message,
-	}
-
-	body, _ := json.Marshal(response)
-	return events.APIGatewayProxyResponse{
-		StatusCode: statusCode,
-		Headers: map[string]string{
-			"Content-Type": "application/json",
-		},
-		Body: string(body),
-	}
-}
-
-func (h *Handler) successResponse(data WordPushResponse) events.APIGatewayProxyResponse {
-	body, _ := json.Marshal(data)
-	return events.APIGatewayProxyResponse{
-		StatusCode: 200,
-		Headers: map[string]string{
-			"Content-Type": "application/json",
-		},
-		Body: string(body),
-	}
 }
 
 func (h *Handler) generateWords(course string, wordCount int, level int) ([]utils.Word, error) {

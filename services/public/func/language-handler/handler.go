@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"language-assistant/internal/models"
 	"language-assistant/internal/utils"
 	"net/http"
 	"strings"
@@ -63,7 +64,7 @@ func (h *Handler) EventHandler(request events.APIGatewayProxyRequest) (events.AP
 		}).Info("event handling")
 
 		if event.Type == linebot.EventTypeFollow {
-			h.sendGreetingMessage(event.ReplyToken)
+			h.handleUserFollow(event.ReplyToken, event.Source.UserID)
 			continue
 		}
 
@@ -72,32 +73,47 @@ func (h *Handler) EventHandler(request events.APIGatewayProxyRequest) (events.AP
 			case *linebot.TextMessage:
 				h.logger.WithField("text", message.Text).Info("Received text message")
 
+				// 檢查用戶是否已有設定
+				userConfig, err := h.userConfigRepo.GetUserConfig(event.Source.UserID)
+				if err != nil {
+					h.logger.WithError(err).Error("Failed to get user config")
+				}
+
 				switch message.Text {
 				case "/說明":
 					h.sendGreetingMessage(event.ReplyToken)
 					continue
 				case "我對多益有興趣":
-					h.handleCourseInterest(event.ReplyToken, event.Source.UserID, "toeic")
+					h.handleCourseInterest(event.ReplyToken, userConfig.DisplayName, event.Source.UserID, "toeic")
 					continue
 				case "我對雅思有興趣":
-					h.handleCourseInterest(event.ReplyToken, event.Source.UserID, "ielts")
+					h.handleCourseInterest(event.ReplyToken, userConfig.DisplayName, event.Source.UserID, "ielts")
 					continue
 				case "/設定推播":
 					h.handlePushSettingsStart(event.ReplyToken)
 					continue
-				case "設定推播詳細":
-					h.handlePushSettings(event.ReplyToken, event.Source.UserID)
+				case "/設定推播詳細":
+					h.handlePushSettings(event.ReplyToken, event.Source.UserID, userConfig)
 					continue
 				case "/使用預設設定":
-					h.handleSkipPushSettings(event.ReplyToken, event.Source.UserID)
+					h.handleSkipPushSettings(event.ReplyToken, event.Source.UserID, userConfig)
+					continue
+				case "/個人設定":
+					h.handleShowUserSettings(event.ReplyToken, event.Source.UserID)
 					continue
 				default:
+					// 檢查是否是無效的 "/" 命令
+					if strings.HasPrefix(message.Text, "/") {
+						h.linebotClient.ReplyMessage(event.ReplyToken, "❌ 目前無此設定\n\n可使用的指令：\n• /說明 - 查看使用說明\n• /設定推播 - 設定推播選項\n• /個人設定 - 查看個人設定")
+						continue
+					}
+
 					// 檢查是否是推播設定相關的回應
-					if h.handlePushSettingsResponse(event.ReplyToken, event.Source.UserID, message.Text) {
+					if h.handlePushSettingsResponse(event.ReplyToken, event.Source.UserID, message.Text, userConfig) {
 						continue
 					}
 					// 檢查是否是數字（可能是分數輸入）
-					if h.handleScoreInput(event.ReplyToken, event.Source.UserID, message.Text) {
+					if h.handleScoreInput(event.ReplyToken, userConfig.DisplayName, event.Source.UserID, message.Text) {
 						continue
 					}
 
@@ -167,6 +183,42 @@ func (h *Handler) RequestParser(request events.APIGatewayProxyRequest) ([]*lineb
 	return messageEvents, nil
 }
 
+func (h *Handler) handleUserFollow(replyToken, userID string) {
+	h.logger.WithField("userID", userID).Info("User followed the bot")
+
+	// 獲取用戶資料
+	profile, err := h.linebotClient.GetProfile(userID)
+	if err != nil {
+		h.logger.WithError(err).WithField("userID", userID).Error("Failed to get user profile")
+		// 即使獲取資料失敗，仍然發送歡迎訊息
+		h.sendGreetingMessage(replyToken)
+		return
+	}
+
+	displayName := profile.DisplayName
+	h.logger.WithFields(logrus.Fields{
+		"userID":      userID,
+		"displayName": displayName,
+	}).Info("Retrieved user profile")
+
+	// 建立基本用戶記錄
+	if err := h.userConfigRepo.SaveUserConfig(userID, displayName, "", 0, 0, "", ""); err != nil {
+		h.logger.WithError(err).WithFields(logrus.Fields{
+			"userID":      userID,
+			"displayName": displayName,
+		}).Error("Failed to create initial user record")
+		// 即使建立記錄失敗，仍然發送歡迎訊息
+	} else {
+		h.logger.WithFields(logrus.Fields{
+			"userID":      userID,
+			"displayName": displayName,
+		}).Info("Successfully created initial user record")
+	}
+
+	// 發送歡迎訊息
+	h.sendGreetingMessage(replyToken)
+}
+
 func (h *Handler) sendGreetingMessage(replyToken string) {
 	message := `👋 嗨！我是你的語言小幫手！
 
@@ -175,6 +227,7 @@ func (h *Handler) sendGreetingMessage(replyToken string) {
 
 如果你有興趣，也可以點選我們的字卡連結，我們目前支援「多益」與「雅思」的每日單字推播 📚📩
 不過目前暫時沒有興趣也沒關係，你可以隨時輸入「/設定推播」來開始設定。
+也可以輸入「/個人設定」來查看你的設定紀錄唷！
 
 如有任何疑問，歡迎隨時輸入「/說明」來再次查看這份說明 📎`
 
@@ -188,9 +241,9 @@ func (h *Handler) sendGreetingMessage(replyToken string) {
 	}
 }
 
-func (h *Handler) handleCourseInterest(replyToken, userID, course string) {
+func (h *Handler) handleCourseInterest(replyToken, userName, userID, course string) {
 	// 先儲存課程選擇（level 暫時設為 0，等待用戶輸入，使用預設的推播設定）
-	if err := h.userConfigRepo.SaveUserConfig(userID, course, 0, 0, "", ""); err != nil {
+	if err := h.userConfigRepo.SaveUserConfig(userID, userName, course, 0, 0, "", ""); err != nil {
 		h.logger.WithError(err).Error("Failed to save user config")
 		h.linebotClient.ReplyMessage(replyToken, "抱歉，設定過程發生錯誤，請稍後再試。")
 		return
@@ -219,7 +272,7 @@ func (h *Handler) handleCourseInterest(replyToken, userID, course string) {
 	}
 }
 
-func (h *Handler) handleScoreInput(replyToken, userID, text string) bool {
+func (h *Handler) handleScoreInput(replyToken, userName, userID, text string) bool {
 	// 檢查用戶是否有等待分數輸入的設定
 	userConfig, err := h.userConfigRepo.GetUserConfig(userID)
 	if err != nil {
@@ -279,7 +332,7 @@ func (h *Handler) handleScoreInput(replyToken, userID, text string) bool {
 	}
 
 	// 更新用戶設定
-	if err := h.userConfigRepo.SaveUserConfig(userID, userConfig.Course, score, 0, "", ""); err != nil {
+	if err := h.userConfigRepo.SaveUserConfig(userID, userName, userConfig.Course, score, 0, "", ""); err != nil {
 		h.logger.WithError(err).Error("Failed to update user config with score")
 		h.linebotClient.ReplyMessage(replyToken, "抱歉，分數設定過程發生錯誤，請稍後再試。")
 		return true
@@ -298,7 +351,7 @@ func (h *Handler) sendPushSettingsPrompt(replyToken, scoreMessage string) {
 
 	// 使用 Quick Reply 按鈕
 	quickReply := linebot.NewQuickReplyItems(
-		linebot.NewQuickReplyButton("", linebot.NewMessageAction("設定推播", "設定推播詳細")),
+		linebot.NewQuickReplyButton("", linebot.NewMessageAction("設定推播", "/設定推播詳細")),
 		linebot.NewQuickReplyButton("", linebot.NewMessageAction("使用預設設定", "/使用預設設定")),
 	)
 
@@ -309,15 +362,86 @@ func (h *Handler) sendPushSettingsPrompt(replyToken, scoreMessage string) {
 	}
 }
 
-func (h *Handler) handlePushSettings(replyToken, userID string) {
-	// 獲取用戶當前設定，檢查是否已有課程
+func (h *Handler) handleShowUserSettings(replyToken, userID string) {
 	userConfig, err := h.userConfigRepo.GetUserConfig(userID)
 	if err != nil {
 		h.logger.WithError(err).Error("Failed to get user config")
-		h.linebotClient.ReplyMessage(replyToken, "抱歉，設定過程發生錯誤，請稍後再試。")
+		h.linebotClient.ReplyMessage(replyToken, "抱歉，無法取得您的設定資料，請稍後再試。")
 		return
 	}
 
+	if userConfig == nil {
+		h.linebotClient.ReplyMessage(replyToken, "📝 您尚未完成設定\n\n請先：\n1. 選擇課程（多益/雅思）\n2. 設定您的程度分數\n3. 設定推播選項\n\n💡 輸入「/說明」查看完整使用說明")
+		return
+	}
+
+	// 格式化用戶設定資訊
+	var message strings.Builder
+	message.WriteString("⚙️ 個人設定資訊\n\n")
+
+	// 顯示名稱
+	if userConfig.DisplayName != "" {
+		message.WriteString(fmt.Sprintf("👤 用戶名稱：%s\n", userConfig.DisplayName))
+	}
+
+	// 課程資訊
+	if userConfig.Course != "" {
+		var courseName, levelInfo string
+		if userConfig.Course == "toeic" {
+			courseName = "多益 (TOEIC)"
+			if userConfig.Level > 0 {
+				levelInfo = fmt.Sprintf("%d 分", userConfig.Level)
+			}
+		} else if userConfig.Course == "ielts" {
+			courseName = "雅思 (IELTS)"
+			if userConfig.Level > 0 {
+				realScore := float64(userConfig.Level) / 10.0
+				levelInfo = fmt.Sprintf("%.1f 分", realScore)
+			}
+		}
+		message.WriteString(fmt.Sprintf("📚 課程：%s\n", courseName))
+
+		if levelInfo != "" {
+			message.WriteString(fmt.Sprintf("📊 程度：%s\n", levelInfo))
+		} else {
+			message.WriteString("📊 程度：尚未設定\n")
+		}
+	} else {
+		message.WriteString("📚 課程：尚未選擇\n")
+		message.WriteString("📊 程度：尚未設定\n")
+	}
+
+	// 推播設定
+	if userConfig.DailyWords > 0 {
+		message.WriteString(fmt.Sprintf("📱 每日推播：%d 個單字\n", userConfig.DailyWords))
+	} else {
+		message.WriteString("📱 每日推播：尚未設定\n")
+	}
+
+	if userConfig.PushTime != "" {
+		message.WriteString(fmt.Sprintf("⏰ 推播時間：%s\n", userConfig.PushTime))
+	} else {
+		message.WriteString("⏰ 推播時間：尚未設定\n")
+	}
+
+	if userConfig.Timezone != "" {
+		message.WriteString(fmt.Sprintf("🌏 時區：%s\n", userConfig.Timezone))
+	}
+
+	// 設定完成度檢查
+	message.WriteString("\n")
+	if userConfig.Course != "" && userConfig.Level > 0 && userConfig.DailyWords > 0 && userConfig.PushTime != "" {
+		message.WriteString("✅ 設定已完成！\n\n💡 可使用「/設定推播」重新調整推播設定")
+	} else {
+		message.WriteString("⚠️ 設定尚未完整\n\n💡 使用「/設定推播」完成剩餘設定")
+	}
+
+	if err := h.linebotClient.ReplyMessage(replyToken, message.String()); err != nil {
+		h.logger.Error("Failed to send user settings: ", err)
+	}
+}
+
+func (h *Handler) handlePushSettings(replyToken, userID string, userConfig *models.UserConfig) {
 	if userConfig != nil && userConfig.Course != "" {
 		// 用戶已有課程設定，直接進入單字量選擇
 		var courseName string
@@ -353,15 +477,7 @@ func (h *Handler) handlePushSettings(replyToken, userID string) {
 	}
 }
 
-func (h *Handler) handleSkipPushSettings(replyToken, userID string) {
-	// 獲取用戶當前設定
-	userConfig, err := h.userConfigRepo.GetUserConfig(userID)
-	if err != nil {
-		h.logger.WithError(err).Error("Failed to get user config")
-		h.linebotClient.ReplyMessage(replyToken, "抱歉，設定過程發生錯誤，請稍後再試。")
-		return
-	}
-
+func (h *Handler) handleSkipPushSettings(replyToken, userID string, userConfig *models.UserConfig) {
 	if userConfig == nil {
 		h.linebotClient.ReplyMessage(replyToken, "請先設定課程和分數。")
 		return
@@ -373,7 +489,7 @@ func (h *Handler) handleSkipPushSettings(replyToken, userID string) {
 	userConfig.Timezone = "Asia/Taipei" // 預設時區
 
 	// 使用預設設定：10個單字，早上8:00推播
-	if err := h.userConfigRepo.SaveUserConfig(userID, userConfig.Course, userConfig.Level, userConfig.DailyWords, userConfig.PushTime, userConfig.Timezone); err != nil {
+	if err := h.userConfigRepo.SaveUserConfig(userID, userConfig.DisplayName, userConfig.Course, userConfig.Level, userConfig.DailyWords, userConfig.PushTime, userConfig.Timezone); err != nil {
 		h.logger.WithError(err).Error("Failed to save default push settings")
 		h.linebotClient.ReplyMessage(replyToken, "抱歉，設定過程發生錯誤，請稍後再試。")
 		return
@@ -402,7 +518,7 @@ func (h *Handler) handleSkipPushSettings(replyToken, userID string) {
 	}
 }
 
-func (h *Handler) handlePushSettingsResponse(replyToken, userID, text string) bool {
+func (h *Handler) handlePushSettingsResponse(replyToken, userID, text string, userConfig *models.UserConfig) bool {
 	h.logger.WithField("text", text).Info("Checking push settings response")
 
 	// 檢查是否是推播設定的課程選擇
@@ -449,7 +565,7 @@ func (h *Handler) handlePushSettingsResponse(replyToken, userID, text string) bo
 		h.logger.Info("Matched 時間 prefix")
 		pushTime := strings.TrimPrefix(text, "時間:")
 		h.logger.WithField("pushTime", pushTime).Info("Extracted push time")
-		h.handlePushTimeSelection(replyToken, userID, pushTime)
+		h.handlePushTimeSelection(replyToken, userID, pushTime, userConfig)
 		return true
 	}
 
@@ -479,7 +595,7 @@ func (h *Handler) handleDailyWordsSelection(replyToken, userID string, dailyWord
 	}
 }
 
-func (h *Handler) handlePushTimeSelection(replyToken, userID, pushTime string) {
+func (h *Handler) handlePushTimeSelection(replyToken, userID, pushTime string, userConfig *models.UserConfig) {
 	// 獲取臨時存儲的單字量和課程
 	dailyWords := h.getTempDailyWords(userID)
 	if dailyWords == 0 {
@@ -488,74 +604,43 @@ func (h *Handler) handlePushTimeSelection(replyToken, userID, pushTime string) {
 
 	tempCourse := h.getTempCourse(userID)
 
-	// 如果有暫存的課程，表示這是從推播設定流程來的
-	if tempCourse != "" {
-		h.logger.Info("Handling push settings flow")
+	// 確定最終的課程和等級
+	var finalCourse string
+	var finalLevel int
+	var displayName string
 
-		// 檢查用戶是否已有設定
-		userConfig, err := h.userConfigRepo.GetUserConfig(userID)
+	if tempCourse != "" {
+		// 從推播設定流程來的
+		finalCourse = tempCourse
+		finalLevel = 0 // 預設 level
+		if userConfig != nil {
+			finalLevel = userConfig.Level
+			displayName = userConfig.DisplayName
+		}
+		h.logger.Info("Handling push settings flow")
+	} else {
+		// 從分數設定後的推播設定來的，需要重新獲取用戶設定
+		var err error
+		userConfig, err = h.userConfigRepo.GetUserConfig(userID)
 		if err != nil {
 			h.logger.WithError(err).Error("Failed to get user config")
 			h.linebotClient.ReplyMessage(replyToken, "抱歉，設定過程發生錯誤，請稍後再試。")
 			return
 		}
 
-		// 確定要使用的 level
-		level := 0 // 預設 level
-		if userConfig != nil {
-			level = userConfig.Level // 使用現有的 level
-		}
-
-		// 更新推播設定
-		if err := h.userConfigRepo.SaveUserConfig(userID, tempCourse, level, dailyWords, pushTime, "Asia/Taipei"); err != nil {
-			h.logger.WithError(err).Error("Failed to update user config with push settings")
-			h.linebotClient.ReplyMessage(replyToken, "抱歉，設定過程發生錯誤，請稍後再試。")
+		if userConfig == nil {
+			h.linebotClient.ReplyMessage(replyToken, "請先設定課程和分數。")
 			return
 		}
 
-		// 清理臨時存儲
-		h.clearTempDailyWords(userID)
-		h.clearTempCourse(userID)
-
-		var courseName string
-		if tempCourse == "toeic" {
-			courseName = "多益"
-		} else {
-			courseName = "雅思"
-		}
-
-		message := fmt.Sprintf("🎉 推播設定完成！\n\n📱 你的推播設定：\n• 課程：%s\n• 每天 %d 個單字\n• 推播時間：%s\n\n🚀 馬上為您推播 %s 單字，下一次會於明天 %s 推播！\n\n現在你可以開始使用翻譯功能！", courseName, dailyWords, pushTime, courseName, pushTime)
-
-		// 設定推播排程並立即推播
-		if err := h.setupUserPushSchedule(userID, pushTime, "Asia/Taipei"); err != nil {
-			errorMessage := "⚠️ 排程建立失敗，請稍後重新設定或聯絡客服。"
-			if replyErr := h.linebotClient.ReplyMessage(replyToken, errorMessage); replyErr != nil {
-				h.logger.Error("Failed to send error message: ", replyErr)
-			}
-			return
-		}
-
-		if err := h.linebotClient.ReplyMessage(replyToken, message); err != nil {
-			h.logger.Error("Failed to send push settings confirmation: ", err)
-		}
-		return
+		finalCourse = userConfig.Course
+		finalLevel = userConfig.Level
+		displayName = userConfig.DisplayName
+		h.logger.Info("Handling score input flow")
 	}
 
-	// 原來的邏輯：分數設定後的推播設定
-	userConfig, err := h.userConfigRepo.GetUserConfig(userID)
-	if err != nil {
-		h.logger.WithError(err).Error("Failed to get user config")
-		h.linebotClient.ReplyMessage(replyToken, "抱歉，設定過程發生錯誤，請稍後再試。")
-		return
-	}
-
-	if userConfig == nil {
-		h.linebotClient.ReplyMessage(replyToken, "請先設定課程和分數。")
-		return
-	}
-
-	// 更新用戶設定
-	if err := h.userConfigRepo.SaveUserConfig(userID, userConfig.Course, userConfig.Level, dailyWords, pushTime, "Asia/Taipei"); err != nil {
+	// 統一更新用戶設定
+	if err := h.userConfigRepo.SaveUserConfig(userID, displayName, finalCourse, finalLevel, dailyWords, pushTime, "Asia/Taipei"); err != nil {
 		h.logger.WithError(err).Error("Failed to update user config with push settings")
 		h.linebotClient.ReplyMessage(replyToken, "抱歉，設定過程發生錯誤，請稍後再試。")
 		return
@@ -563,15 +648,19 @@ func (h *Handler) handlePushTimeSelection(replyToken, userID, pushTime string) {
 
 	// 清理臨時存儲
 	h.clearTempDailyWords(userID)
+	if tempCourse != "" {
+		h.clearTempCourse(userID)
+	}
 
+	// 統一的成功訊息處理
 	var courseName string
-	if userConfig.Course == "toeic" {
+	if finalCourse == "toeic" {
 		courseName = "多益"
 	} else {
 		courseName = "雅思"
 	}
 
-	message := fmt.Sprintf("🎉 推播設定完成！\n\n📱 你的推播設定：\n• 每天 %d 個單字\n• 推播時間：%s\n\n🚀 馬上為您推播 %s 單字，下一次會於明天 %s 推播！\n\n現在你可以開始使用翻譯功能，我會根據你的程度提供合適的單字學習。", dailyWords, pushTime, courseName, pushTime)
+	message := fmt.Sprintf("🎉 推播設定完成！\n\n📱 你的推播設定：\n• 課程：%s\n• 每天 %d 個單字\n• 推播時間：%s\n\n🚀 馬上為您推播 %s 單字，下一次會於明天 %s 推播！\n\n現在你可以開始使用翻譯功能！", courseName, dailyWords, pushTime, courseName, pushTime)
 
 	// 設定推播排程並立即推播
 	if err := h.setupUserPushSchedule(userID, pushTime, "Asia/Taipei"); err != nil {
@@ -723,7 +812,7 @@ func (h *Handler) triggerImmediateWordPush(userID string) {
 // deleteExistingSchedule 刪除現有的用戶排程（如果存在）
 func (h *Handler) deleteExistingSchedule(userID string) error {
 	scheduleName := fmt.Sprintf("daily-vocab-%s", userID)
-	
+
 	h.logger.WithFields(logrus.Fields{
 		"userID":       userID,
 		"scheduleName": scheduleName,
@@ -734,7 +823,7 @@ func (h *Handler) deleteExistingSchedule(userID string) error {
 		Name:      aws.String(scheduleName),
 		GroupName: aws.String("default"),
 	})
-	
+
 	if err != nil {
 		// 如果排程不存在，直接返回 nil（這是正常情況）
 		h.logger.WithField("userID", userID).Info("No existing schedule found")
@@ -747,7 +836,7 @@ func (h *Handler) deleteExistingSchedule(userID string) error {
 		Name:      aws.String(scheduleName),
 		GroupName: aws.String("default"),
 	})
-	
+
 	if err != nil {
 		h.logger.WithError(err).Error("Failed to delete existing schedule")
 		return fmt.Errorf("failed to delete existing schedule: %w", err)
@@ -788,11 +877,11 @@ func (h *Handler) scheduleWordPush(userID, pushTime, timezone string) error {
 	scheduleName := fmt.Sprintf("daily-vocab-%s", userID)
 
 	h.logger.WithFields(logrus.Fields{
-		"scheduleName":   scheduleName,
-		"expression":     scheduleExpression,
-		"targetArn":      h.envVars.vocabularyFunctionArn,
-		"roleArn":        h.envVars.schedulerRoleArn,
-		"groupName":      "default",
+		"scheduleName": scheduleName,
+		"expression":   scheduleExpression,
+		"targetArn":    h.envVars.vocabularyFunctionArn,
+		"roleArn":      h.envVars.schedulerRoleArn,
+		"groupName":    "default",
 	}).Info("Creating EventBridge schedule")
 
 	scheduleOutput, err := h.schedulerClient.CreateSchedule(context.TODO(), &scheduler.CreateScheduleInput{
@@ -847,7 +936,7 @@ func (h *Handler) createDailyCronExpression(pushTime, timezone string) (string, 
 	// 創建 cron 表達式: 分 時 日 月 星期 年
 	// 每天在指定時間執行
 	cronExpression := fmt.Sprintf("cron(%d %d * * ? *)", utcTime.Minute(), utcTime.Hour())
-	
+
 	h.logger.WithFields(logrus.Fields{
 		"originalTime": pushTime,
 		"timezone":     timezone,

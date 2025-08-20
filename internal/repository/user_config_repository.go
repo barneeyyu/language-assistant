@@ -28,20 +28,37 @@ func NewUserConfigRepository(logger *logrus.Entry, dynamodb utils.DynamoDbAPI, t
 	}
 }
 
-func (r *userConfigRepository) SaveUserConfig(userID, course string, level int, dailyWords int, pushTime, timezone string) error {
+func (r *userConfigRepository) SaveUserConfig(userID, displayName, course string, level int, dailyWords int, pushTime, timezone string) error {
 	timestamp := time.Now().UTC().Format(time.RFC3339)
+
+	item := map[string]types.AttributeValue{
+		"userId":    &types.AttributeValueMemberS{Value: userID},
+		"updatedAt": &types.AttributeValueMemberS{Value: timestamp},
+	}
+
+	// 只在有值時才設定欄位
+	if displayName != "" {
+		item["displayName"] = &types.AttributeValueMemberS{Value: displayName}
+	}
+	if course != "" {
+		item["course"] = &types.AttributeValueMemberS{Value: course}
+	}
+	if level != 0 {
+		item["level"] = &types.AttributeValueMemberS{Value: fmt.Sprintf("%d", level)}
+	}
+	if dailyWords != 0 {
+		item["dailyWords"] = &types.AttributeValueMemberS{Value: fmt.Sprintf("%d", dailyWords)}
+	}
+	if pushTime != "" {
+		item["pushTime"] = &types.AttributeValueMemberS{Value: pushTime}
+	}
+	if timezone != "" {
+		item["timezone"] = &types.AttributeValueMemberS{Value: timezone}
+	}
 
 	_, err := r.dynamodb.PutItem(context.Background(), &dynamodb.PutItemInput{
 		TableName: aws.String(r.tableName),
-		Item: map[string]types.AttributeValue{
-			"userId":     &types.AttributeValueMemberS{Value: userID},
-			"course":     &types.AttributeValueMemberS{Value: course},
-			"level":      &types.AttributeValueMemberS{Value: fmt.Sprintf("%d", level)},
-			"dailyWords": &types.AttributeValueMemberS{Value: fmt.Sprintf("%d", dailyWords)},
-			"pushTime":   &types.AttributeValueMemberS{Value: pushTime},
-			"timezone":   &types.AttributeValueMemberS{Value: timezone},
-			"updatedAt":  &types.AttributeValueMemberS{Value: timestamp},
-		},
+		Item:      item,
 	})
 
 	if err != nil {
@@ -81,6 +98,11 @@ func (r *userConfigRepository) GetUserConfig(userID string) (*models.UserConfig,
 
 	var userConfig models.UserConfig
 	userConfig.UserID = userID
+
+	// Extract displayName
+	if attr, ok := result.Item["displayName"].(*types.AttributeValueMemberS); ok {
+		userConfig.DisplayName = attr.Value
+	}
 
 	// Extract course
 	if attr, ok := result.Item["course"].(*types.AttributeValueMemberS); ok {
@@ -123,15 +145,6 @@ func (r *userConfigRepository) GetUserConfig(userID string) (*models.UserConfig,
 	if attr, ok := result.Item["updatedAt"].(*types.AttributeValueMemberS); ok {
 		userConfig.UpdatedAt = attr.Value
 	}
-
-	r.logger.WithFields(logrus.Fields{
-		"userId":     userID,
-		"course":     userConfig.Course,
-		"level":      userConfig.Level,
-		"dailyWords": userConfig.DailyWords,
-		"pushTime":   userConfig.PushTime,
-		"timezone":   userConfig.Timezone,
-	}).Info("Successfully retrieved user config")
 
 	return &userConfig, nil
 }

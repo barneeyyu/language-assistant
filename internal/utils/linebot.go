@@ -12,6 +12,7 @@ type LinebotAPI interface {
 	ReplyMessageWithMultiple(replyToken string, messages ...linebot.SendingMessage) error
 	ParseRequest(req *http.Request) ([]*linebot.Event, error)
 	PushMessage(userID string, message string) error
+	GetProfile(userID string) (*linebot.UserProfileResponse, error)
 }
 
 type LineBotClient struct {
@@ -45,4 +46,8 @@ func (c *LineBotClient) ParseRequest(req *http.Request) ([]*linebot.Event, error
 func (c *LineBotClient) PushMessage(userID string, message string) error {
 	_, err := c.client.PushMessage(userID, linebot.NewTextMessage(message)).Do()
 	return err
+}
+
+func (c *LineBotClient) GetProfile(userID string) (*linebot.UserProfileResponse, error) {
+	return c.client.GetProfile(userID).Do()
 }
